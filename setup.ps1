@@ -126,7 +126,7 @@ try {
     & $nssm set $ServiceName AppExit         Default Restart
     & $nssm set $ServiceName AppThrottle     1500
     & $nssm set $ServiceName AppStdout       $LogFile
-    & $nssm set $ServiceName AppStderr       $LogFile
+    & $nssm set $ServiceName AppStderr       "$DestPath\error.txt"
     & $nssm set $ServiceName AppRotateFiles  1
     & $nssm set $ServiceName AppRotateOnline 1
     & $nssm set $ServiceName AppRotateBytes  5242880

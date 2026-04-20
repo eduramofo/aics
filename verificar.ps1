@@ -116,6 +116,17 @@ if (Test-Path $log) {
 } else { Fail "Log nao encontrado (servico nunca rodou?)" }
 
 Write-Host ""
+Write-Host "[ Erros do servico (error.txt) ]"
+$errLog = "$DestPath\error.txt"
+if (Test-Path $errLog) {
+    $errLines = Get-Content $errLog -Tail 5
+    if ($errLines) {
+        Fail "Erros encontrados:"
+        $errLines | ForEach-Object { Info $_ }
+    } else { Ok "error.txt vazio (sem erros)" }
+} else { Ok "error.txt nao existe (sem erros)" }
+
+Write-Host ""
 Write-Host "=========================================="
 Write-Host "  Resultado salvo em: $logPath"
 Write-Host "=========================================="
