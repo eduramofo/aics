@@ -172,6 +172,4 @@ catch {
 }
 
 Stop-Transcript | Out-Null
-Write-Host "Log salvo em: $transcriptPath"
-Start-Process notepad.exe $transcriptPath
 pause
