@@ -129,6 +129,22 @@ function Apply-NATConfig {
     Set-NetIPInterface -InterfaceAlias $PrivIface -WeakHostSend    Enabled -ErrorAction SilentlyContinue
     Set-NetIPInterface -InterfaceAlias $PrivIface -WeakHostReceive Enabled -ErrorAction SilentlyContinue
 
+    # Define interface privada como Private (firewall permite forwarding; Public bloqueia)
+    $privIdx = (Get-NetAdapter -Name $PrivIface -ErrorAction SilentlyContinue).ifIndex
+    if ($privIdx) {
+        Set-NetConnectionProfile -InterfaceIndex $privIdx -NetworkCategory Private -ErrorAction SilentlyContinue
+        Write-Log "Interface '$PrivIface' definida como Private (firewall)"
+    }
+
+    # Firewall: permite todo tráfego da rede privada entrando pela interface Ethernet
+    # (necessário para WinNAT encaminhar pacotes de dispositivos conectados)
+    Remove-NetFirewallRule -DisplayName "AICS-Private-In" -ErrorAction SilentlyContinue
+    New-NetFirewallRule -DisplayName "AICS-Private-In" `
+        -Direction Inbound -InterfaceAlias $PrivIface `
+        -RemoteAddress $NetPrefix -Action Allow -Protocol Any `
+        -ErrorAction SilentlyContinue | Out-Null
+    Write-Log "Firewall: regra AICS-Private-In criada (allow $NetPrefix inbound em '$PrivIface')"
+
     # Remove TODOS os NetNats existentes (qualquer conflito impede criação)
     $allNats = Get-NetNat -ErrorAction SilentlyContinue
     if ($allNats) {

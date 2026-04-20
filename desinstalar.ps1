@@ -62,6 +62,27 @@ if ($ip) {
     Write-Host "  [--] Nenhum IP estatico encontrado em '$Interface'."
 }
 
+# Remove NetNat
+$nat = Get-NetNat -Name "AICS-NAT" -ErrorAction SilentlyContinue
+if ($nat) {
+    Remove-NetNat -Name "AICS-NAT" -Confirm:$false -ErrorAction SilentlyContinue
+    Write-Host "  [OK] NetNat AICS-NAT removido."
+} else {
+    Write-Host "  [--] NetNat nao encontrado."
+}
+
+# Remove regra de firewall
+Remove-NetFirewallRule -DisplayName "AICS-Private-In" -ErrorAction SilentlyContinue
+Write-Host "  [OK] Regra de firewall AICS-Private-In removida."
+
+# Restaura Forwarding e WeakHost nas interfaces
+foreach ($iface in @($Interface, "Wi-Fi")) {
+    Set-NetIPInterface -InterfaceAlias $iface -Forwarding Disabled -ErrorAction SilentlyContinue
+    Set-NetIPInterface -InterfaceAlias $iface -WeakHostSend Disabled -ErrorAction SilentlyContinue
+    Set-NetIPInterface -InterfaceAlias $iface -WeakHostReceive Disabled -ErrorAction SilentlyContinue
+}
+Write-Host "  [OK] Forwarding e WeakHost desativados."
+
 # Remove pasta C:\AICS
 if (Test-Path $DestPath) {
     Write-Host "Removendo pasta $DestPath..."
