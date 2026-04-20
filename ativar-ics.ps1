@@ -116,6 +116,49 @@ function Set-FixedIP {
     return $false
 }
 
+function Apply-ICSConfig {
+    param ([string]$PubIface, [string]$PrivIface)
+
+    # Inicia SharedAccess
+    $sa = Get-Service -Name SharedAccess -ErrorAction SilentlyContinue
+    if (-not $sa) { throw "Servico SharedAccess nao encontrado." }
+    Set-Service SharedAccess -StartupType Manual -ErrorAction SilentlyContinue
+    if ($sa.Status -ne 'Running') {
+        Start-Service SharedAccess -ErrorAction Stop
+        Start-Sleep 2
+    }
+
+    $ns = New-Object -ComObject HNetCfg.HNetShare -ErrorAction Stop
+
+    # Desativa todo compartilhamento existente
+    foreach ($conn in @($ns.EnumEveryConnection())) {
+        try {
+            $cfg = $ns.INetSharingConfigurationForINetConnection($conn)
+            if ($cfg.SharingEnabled) { $cfg.DisableSharing() }
+        } catch {}
+    }
+
+    # Localiza as conexoes pelo nome
+    $pubConn = $null; $privConn = $null
+    foreach ($conn in @($ns.EnumEveryConnection())) {
+        try {
+            $props = $ns.NetConnectionProps($conn)
+            if ($props.Name -eq $PubIface)  { $pubConn  = $conn }
+            if ($props.Name -eq $PrivIface) { $privConn = $conn }
+        } catch {}
+    }
+
+    if (-not $pubConn)  { throw "Interface publica '$PubIface' nao encontrada no ICS." }
+    if (-not $privConn) { throw "Interface privada '$PrivIface' nao encontrada no ICS." }
+
+    $pubCfg  = $ns.INetSharingConfigurationForINetConnection($pubConn)
+    $privCfg = $ns.INetSharingConfigurationForINetConnection($privConn)
+    $pubCfg.EnableSharing(0)   # 0 = publica (internet)
+    $privCfg.EnableSharing(1)  # 1 = privada (LAN)
+
+    Write-Log "ICS ativado via COM: '$PubIface' -> '$PrivIface'. IP privado: 192.168.137.1 (DHCP automatico)."
+}
+
 function Apply-NATConfig {
     param ([string]$PubIface, [string]$PrivIface, [string]$NetPrefix)
 
@@ -195,20 +238,28 @@ function Apply-NATConfig {
 }
 
 # =========================
-# DESATIVA ICS E PARA SharedAccess (conflita com NetNat)
+# DESATIVA ICS (só se NetNat disponível; senão usaremos ICS como fallback)
 # =========================
+$script:UseICS = $false
 try {
-    $ns = New-Object -ComObject HNetCfg.HNetShare -ErrorAction SilentlyContinue
-    foreach ($conn in $ns.EnumEveryConnection()) {
-        $cfg = $ns.INetSharingConfigurationForINetConnection($conn)
-        if ($cfg.SharingEnabled) { $cfg.DisableSharing() }
+    New-NetNat -Name "__AICS_PROBE__" -InternalIPInterfaceAddressPrefix "192.168.253.0/24" -ErrorAction Stop | Out-Null
+    Remove-NetNat -Name "__AICS_PROBE__" -Confirm:$false -ErrorAction SilentlyContinue
+    # NetNat funciona — desativa ICS que conflita
+    try {
+        $ns = New-Object -ComObject HNetCfg.HNetShare -ErrorAction SilentlyContinue
+        foreach ($conn in @($ns.EnumEveryConnection())) {
+            $cfg = $ns.INetSharingConfigurationForINetConnection($conn)
+            if ($cfg.SharingEnabled) { $cfg.DisableSharing() }
+        }
+    } catch {}
+    $sharedAccess = Get-Service -Name SharedAccess -ErrorAction SilentlyContinue
+    if ($sharedAccess -and $sharedAccess.Status -eq 'Running') {
+        Stop-Service -Name SharedAccess -Force -ErrorAction SilentlyContinue
+        Write-Log "Servico SharedAccess parado (NetNat ativo)."
     }
-} catch {}
-
-$sharedAccess = Get-Service -Name SharedAccess -ErrorAction SilentlyContinue
-if ($sharedAccess -and $sharedAccess.Status -eq 'Running') {
-    Stop-Service -Name SharedAccess -Force -ErrorAction SilentlyContinue
-    Write-Log "Servico SharedAccess parado (conflita com NetNat)."
+} catch {
+    Write-Log "NetNat indisponivel ($_). Usando ICS como fallback." "AVISO"
+    $script:UseICS = $true
 }
 
 # =========================
@@ -248,9 +299,13 @@ if (Test-IPExists -InterfaceAlias $PrivateInterface -IPAddress $PrivateIP) {
 }
 
 # =========================
-# APLICA NAT E FORWARDING
+# APLICA NAT / ICS
 # =========================
-Apply-NATConfig -PubIface $PublicInterface -PrivIface $PrivateInterface -NetPrefix $NetworkPrefix
+if ($script:UseICS) {
+    Apply-ICSConfig -PubIface $PublicInterface -PrivIface $PrivateInterface
+} else {
+    Apply-NATConfig -PubIface $PublicInterface -PrivIface $PrivateInterface -NetPrefix $NetworkPrefix
+}
 
 # =========================
 # LOOP DE MONITORAMENTO
@@ -266,12 +321,18 @@ while ($true) {
     if ($newPublic -ne $PublicInterface) {
         Write-Log "Interface publica mudou: '$PublicInterface' -> '$newPublic'. Reaplicando..."
         $PublicInterface = $newPublic
-        Apply-NATConfig -PubIface $PublicInterface -PrivIface $PrivateInterface -NetPrefix $NetworkPrefix
+        if ($script:UseICS) {
+            Apply-ICSConfig -PubIface $PublicInterface -PrivIface $PrivateInterface
+        } else {
+            Apply-NATConfig -PubIface $PublicInterface -PrivIface $PrivateInterface -NetPrefix $NetworkPrefix
+        }
     }
 
-    if (-not (Test-IPExists -InterfaceAlias $PrivateInterface -IPAddress $PrivateIP)) {
-        if (Set-FixedIP -InterfaceAlias $PrivateInterface -IPAddress $PrivateIP -PrefixLen $PrefixLength) {
-            Write-Log "IP fixo reaplicado: $PrivateIP na interface '$PrivateInterface'."
+    if (-not $script:UseICS) {
+        if (-not (Test-IPExists -InterfaceAlias $PrivateInterface -IPAddress $PrivateIP)) {
+            if (Set-FixedIP -InterfaceAlias $PrivateInterface -IPAddress $PrivateIP -PrefixLen $PrefixLength) {
+                Write-Log "IP fixo reaplicado: $PrivateIP na interface '$PrivateInterface'."
+            }
         }
     }
 }

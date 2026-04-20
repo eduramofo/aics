@@ -111,52 +111,66 @@ try {
     }
 
     # 4. Teste real: tenta criar e remover um NetNat de teste
+    $icsMode = $false
     if ($natClass) {
         try {
             $testNat = New-NetNat -Name "__AICS_TEST__" -InternalIPInterfaceAddressPrefix "192.168.222.0/24" -ErrorAction Stop
             Remove-NetNat -Name "__AICS_TEST__" -Confirm:$false -ErrorAction SilentlyContinue
             Write-Host "  [OK] New-NetNat funcional."
         } catch {
-            Write-Host "  [ERRO] New-NetNat falhou: $_" -ForegroundColor Red
-            $preflightOk = $false
+            Write-Host "  [AVISO] New-NetNat falhou ($_). Verificando fallback ICS..." -ForegroundColor Yellow
+            # Tenta ICS como fallback
+            try {
+                $sa = Get-Service -Name SharedAccess -ErrorAction SilentlyContinue
+                if (-not $sa) { throw "SharedAccess ausente" }
+                $ns = New-Object -ComObject HNetCfg.HNetShare -ErrorAction Stop
+                $ns.EnumEveryConnection() | Out-Null
+                Write-Host "  [OK] ICS disponivel como fallback (IP sera 192.168.137.1)." -ForegroundColor Yellow
+                $icsMode = $true
+            } catch {
+                Write-Host "  [ERRO] NetNat e ICS indisponiveis: $_" -ForegroundColor Red
+                $preflightOk = $false
+            }
         }
     } else {
-        Write-Host "  [ERRO] WMI class MSFT_NetNat ausente mesmo apos tentativa de registro." -ForegroundColor Red
-        $preflightOk = $false
+        # Sem WMI class, tenta ICS direto
+        try {
+            $sa = Get-Service -Name SharedAccess -ErrorAction SilentlyContinue
+            if (-not $sa) { throw "SharedAccess ausente" }
+            $ns = New-Object -ComObject HNetCfg.HNetShare -ErrorAction Stop
+            $ns.EnumEveryConnection() | Out-Null
+            Write-Host "  [OK] ICS disponivel como fallback (IP sera 192.168.137.1)." -ForegroundColor Yellow
+            $icsMode = $true
+        } catch {
+            Write-Host "  [ERRO] WMI class MSFT_NetNat ausente e ICS indisponivel: $_" -ForegroundColor Red
+            $preflightOk = $false
+        }
     }
 
     if (-not $preflightOk) {
-        # Detecta se VirtualMachinePlatform ja esta habilitado (reboot pendente) ou nao
-        $vmp = Get-WindowsOptionalFeature -Online -FeatureName VirtualMachinePlatform -ErrorAction SilentlyContinue
-        $vmpEnabled = ($vmp -and $vmp.State -eq 'Enabled')
-
         Write-Host "" 
         Write-Host "=========================================="  -ForegroundColor Red
-        Write-Host "  INSTALACAO ABORTADA - Reinicializacao necessaria" -ForegroundColor Red
+        Write-Host "  INSTALACAO ABORTADA - Requisito ausente" -ForegroundColor Red
         Write-Host "==========================================" -ForegroundColor Red
         Write-Host ""
-
-        if ($vmpEnabled) {
-            Write-Host "O componente 'Virtual Machine Platform' JA esta habilitado," -ForegroundColor Yellow
-            Write-Host "mas o Windows precisa ser reiniciado para ativa-lo completamente." -ForegroundColor Yellow
-            Write-Host ""
-            Write-Host "  >>> REINICIE O COMPUTADOR e instale novamente. <<<" -ForegroundColor Cyan
-        } else {
-            Write-Host "O AICS requer o componente 'Virtual Machine Platform' do Windows." -ForegroundColor Yellow
-            Write-Host ""
-            Write-Host "Passo 1 - Execute no PowerShell como Administrador:" -ForegroundColor Cyan
-            Write-Host "  Enable-WindowsOptionalFeature -Online -FeatureName VirtualMachinePlatform -NoRestart" -ForegroundColor White
-            Write-Host ""
-            Write-Host "  Ou via 'Ativar ou desativar recursos do Windows':" -ForegroundColor Cyan
-            Write-Host "  Marque: Plataforma de Maquina Virtual (Virtual Machine Platform)" -ForegroundColor White
-            Write-Host ""
-            Write-Host "Passo 2 - Reinicie o computador e instale novamente." -ForegroundColor Cyan
-        }
-
+        Write-Host "NetNat e ICS estao indisponiveis neste sistema." -ForegroundColor Yellow
+        Write-Host ""
+        Write-Host "Tente habilitar o componente 'Virtual Machine Platform':" -ForegroundColor Cyan
+        Write-Host "  Enable-WindowsOptionalFeature -Online -FeatureName VirtualMachinePlatform -NoRestart" -ForegroundColor White
+        Write-Host ""
+        Write-Host "Reinicie o computador e instale novamente." -ForegroundColor Yellow
         Write-Host ""
         Stop-Transcript -ErrorAction SilentlyContinue
         pause
         exit 1
+    }
+
+    if ($icsMode) {
+        Write-Host ""
+        Write-Host "  AVISO: NetNat indisponivel. O AICS usara ICS como fallback." -ForegroundColor Yellow
+        Write-Host "  O IP da interface Ethernet sera 192.168.137.1 (fixado pelo Windows)." -ForegroundColor Yellow
+        Write-Host "  Dispositivos conectados receberao IP automaticamente via DHCP." -ForegroundColor Yellow
+        Write-Host ""
     }
 
     Write-Host "  Todos os requisitos atendidos." -ForegroundColor Green
