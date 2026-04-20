@@ -23,8 +23,9 @@ if (-not ([Security.Principal.WindowsPrincipal] `
           [Security.Principal.WindowsIdentity]::GetCurrent() `
          ).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
 
+    $scriptFile = if ($PSCommandPath) { $PSCommandPath } else { $MyInvocation.MyCommand.Definition }
     Start-Process powershell -ArgumentList `
-        "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`"" `
+        "-NoProfile -ExecutionPolicy Bypass -File `"$scriptFile`"" `
         -Verb RunAs
     exit
 }
