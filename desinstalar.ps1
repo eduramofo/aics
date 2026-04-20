@@ -26,8 +26,10 @@ if ($svc) {
 
     if (Test-Path $nssm) {
         Write-Host "Removendo servico do Windows..."
-        & $nssm remove $ServiceName confirm | Out-Null
+        & $nssm stop $ServiceName confirm 2>$null | Out-Null
+        & $nssm remove $ServiceName confirm 2>$null | Out-Null
     } else {
+        sc.exe stop $ServiceName | Out-Null
         sc.exe delete $ServiceName | Out-Null
     }
     Write-Host "  [OK] Servico removido."
@@ -44,13 +46,29 @@ if ($trayVal) {
     Write-Host "  [--] Tray nao estava no startup."
 }
 
-# Mata processos do tray em segundo plano rodando tray.ps1
-Get-WmiObject Win32_Process -Filter "Name='powershell.exe'" | ForEach-Object {
-    if ($_.CommandLine -like "*tray.ps1*") {
-        Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
-        Write-Host "  [OK] Processo tray encerrado."
+# Mata TODOS os processos com arquivos abertos em C:\AICS
+# Isso inclui: nssm.exe, powershell.exe (ativar-ics, tray) e qualquer outro
+Write-Host "Encerrando processos com arquivos abertos em $DestPath..."
+
+# 1. Mata pelo CommandLine (powershell rodando scripts do AICS)
+Get-WmiObject Win32_Process | ForEach-Object {
+    $cmd = $_.CommandLine
+    if ($cmd -and ($cmd -like "*$DestPath*" -or $cmd -like "*AICS*")) {
+        if ($_.ProcessId -ne $PID) {  # nao mata o proprio processo
+            Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
+            Write-Host "  [OK] Processo encerrado: $($_.Name) (PID $($_.ProcessId))"
+        }
     }
 }
+
+# 2. Mata o nssm.exe explicitamente (ele mantem handle na pasta)
+Get-Process -Name "nssm" -ErrorAction SilentlyContinue | ForEach-Object {
+    Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue
+    Write-Host "  [OK] nssm.exe encerrado (PID $($_.Id))"
+}
+
+# Aguarda SO liberar todos os handles de arquivo
+Start-Sleep -Seconds 4
 
 # Remove IP fixo da interface privada
 $ip = Get-NetIPAddress -InterfaceAlias $Interface -ErrorAction SilentlyContinue |
@@ -84,10 +102,22 @@ foreach ($iface in @($Interface, "Wi-Fi")) {
 Write-Host "  [OK] Forwarding e WeakHost desativados."
 
 # Remove pasta C:\AICS
+# Como este script pode estar rodando DE DENTRO de C:\AICS, usamos um processo
+# externo (cmd.exe) agendado para deletar a pasta DEPOIS que este script encerrar.
 if (Test-Path $DestPath) {
-    Write-Host "Removendo pasta $DestPath..."
+    Write-Host "Agendando remocao da pasta $DestPath..."
+
+    # Tenta remover imediatamente primeiro (funciona se o script nao esta em C:\AICS)
     Remove-Item -Path $DestPath -Recurse -Force -ErrorAction SilentlyContinue
-    Write-Host "  [OK] Pasta removida."
+
+    if (Test-Path $DestPath) {
+        # Pasta ainda existe: agenda via cmd.exe para rodar apos este processo encerrar
+        $delCmd = "ping 127.0.0.1 -n 3 >nul & rd /s /q `"$DestPath`""
+        Start-Process "cmd.exe" -ArgumentList "/c $delCmd" -WindowStyle Hidden
+        Write-Host "  [OK] Remocao agendada. A pasta sera excluida em segundos."
+    } else {
+        Write-Host "  [OK] Pasta removida."
+    }
 } else {
     Write-Host "  [--] Pasta $DestPath nao encontrada."
 }

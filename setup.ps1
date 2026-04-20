@@ -275,9 +275,10 @@ try {
     Set-ItemProperty -Path $regKey -Name "AICS-Tray" -Value $trayCmd
 
     # inicia o tray imediatamente (sem bloquear)
+    # WorkingDirectory garante que o processo nao herde a pasta de onde o setup foi executado
     Start-Process powershell -ArgumentList `
         "-WindowStyle Hidden -NoProfile -ExecutionPolicy Bypass -File `"$TrayPath`"" `
-        -WindowStyle Hidden
+        -WindowStyle Hidden -WorkingDirectory $DestPath
 
     # =========================
     # CONCLUIDO
