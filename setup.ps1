@@ -34,6 +34,8 @@ if (-not ([Security.Principal.WindowsPrincipal] `
 # CONFIG
 # =========================
 $ErrorActionPreference = "Stop"
+$transcriptPath = "$env:USERPROFILE\Desktop\AICS-setup.txt"
+Start-Transcript -Path $transcriptPath -Force | Out-Null
 
 $ServiceName = "AICS-Service"
 $SourcePath  = $PSScriptRoot
@@ -155,4 +157,7 @@ catch {
     Write-Host ""
 }
 
+Stop-Transcript | Out-Null
+Write-Host "Log salvo em: $transcriptPath"
+Start-Process notepad.exe $transcriptPath
 pause
