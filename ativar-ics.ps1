@@ -3,37 +3,31 @@
 AICS - Automatic Internet Connection Sharing Service
 
 .DESCRIPTION
-Este script configura automaticamente o compartilhamento de internet (ICS)
-no Windows de forma dinâmica e resiliente.
-
-FUNCIONALIDADES:
-- Detecta automaticamente a interface com internet (rota padrão)
-- Lê a interface privada via arquivo de configuração local
-- Evita reconfiguração desnecessária (idempotente)
-- Configura ICS via COM (HNetCfg.HNetShare)
-- Configura IP fixo na rede interna
-- Funciona em modo serviço (NSSM)
+Configura NAT via Windows NetNat (mais confiável que ICS via COM).
+Faz NAT de toda a sub-rede privada para a interface pública, incluindo
+tráfego originado pelo próprio host (permite ping -S <ip_privado> funcionar).
 
 CONFIGURAÇÃO:
 Editar o arquivo config.txt na mesma pasta:
 
-interface=Ethernet 2
+interface=Ethernet
 private_ip=10.10.10.1
 
 REQUISITOS:
 - Executar como Administrador
-- Serviço ICS (SharedAccess) habilitado no Windows
+- Windows 10/11
 #>
 
 # =========================
 # CONFIG BASE
 # =========================
-$BasePath               = Split-Path -Parent $MyInvocation.MyCommand.Definition
+$BasePath              = Split-Path -Parent $MyInvocation.MyCommand.Definition
 if (-not $BasePath) { $BasePath = "C:\AICS" }
-$PrefixLength           = 24
-$TimeoutPrivateSeconds  = 30
-$TimeoutPublicSeconds   = 30
-$LogFile                = "$BasePath\log.txt"
+$PrefixLength          = 24
+$NatName               = "AICS-NAT"
+$TimeoutPrivateSeconds = 30
+$TimeoutPublicSeconds  = 30
+$LogFile               = "$BasePath\log.txt"
 
 # =========================
 # LOG
@@ -47,7 +41,7 @@ function Write-Log {
 # =========================
 # LÊ CONFIG
 # =========================
-$PrivateInterface = "Ethernet 2"
+$PrivateInterface = "Ethernet"
 $PrivateIP        = "10.10.10.1"
 
 $configPath = "$BasePath\config.txt"
@@ -57,61 +51,118 @@ if (Test-Path $configPath) {
         if ($line -match "^private_ip=(.+)$") { $PrivateIP        = $Matches[1].Trim() }
     }
 } else {
-    Write-Log "config.txt não encontrado. Usando valores padrão (interface='$PrivateInterface', ip='$PrivateIP')." "AVISO"
+    Write-Log "config.txt nao encontrado. Usando valores padrao." "AVISO"
 }
+
+# Calcula prefixo da rede (ex: 10.10.10.0/24)
+$ipParts      = $PrivateIP -split '\.'
+$NetworkPrefix = "$($ipParts[0]).$($ipParts[1]).$($ipParts[2]).0/$PrefixLength"
 
 # =========================
 # FUNÇÕES
 # =========================
-
 function Wait-InterfaceUp {
-    param (
-        [string]$InterfaceAlias,
-        [int]$TimeoutSeconds = 30
-    )
-
+    param ([string]$InterfaceAlias, [int]$TimeoutSeconds = 30)
     $i = 0
     while ($i -lt $TimeoutSeconds) {
         $iface = Get-NetAdapter -Name $InterfaceAlias -ErrorAction SilentlyContinue
-        if ($iface -and $iface.Status -eq "Up") {
-            return $true
-        }
-
+        if ($iface -and $iface.Status -eq "Up") { return $true }
         Start-Sleep 1
         $i++
     }
-
     return $false
 }
 
 function Get-PublicInterface {
-    param (
-        [string]$PrivateInterface
-    )
-
+    param ([string]$PrivateInterface)
     $routes = Get-NetRoute -DestinationPrefix "0.0.0.0/0" -ErrorAction SilentlyContinue |
         Sort-Object RouteMetric, InterfaceMetric
-
     if (-not $routes) { return $null }
-
     foreach ($route in $routes) {
         $iface = Get-NetAdapter -InterfaceIndex $route.InterfaceIndex -ErrorAction SilentlyContinue
-
         if (-not $iface) { continue }
         if ($iface.Status -ne "Up") { continue }
         if ($iface.Name -eq $PrivateInterface) { continue }
-
         return $iface.Name
     }
-
     return $null
 }
+
+function Test-IPExists {
+    param ([string]$InterfaceAlias, [string]$IPAddress)
+    $out = netsh interface ipv4 show addresses name="$InterfaceAlias" 2>$null
+    return ($out -match [regex]::Escape($IPAddress))
+}
+
+function Set-FixedIP {
+    param ([string]$InterfaceAlias, [string]$IPAddress, [int]$PrefixLen)
+    $existing = Get-NetIPAddress -InterfaceAlias $InterfaceAlias -IPAddress $IPAddress -ErrorAction SilentlyContinue
+    if ($existing) {
+        Remove-NetIPAddress -InterfaceAlias $InterfaceAlias -IPAddress $IPAddress -Confirm:$false -ErrorAction SilentlyContinue
+    }
+    New-NetIPAddress -InterfaceAlias $InterfaceAlias -IPAddress $IPAddress -PrefixLength $PrefixLen `
+        -ErrorAction SilentlyContinue | Out-Null
+    $waited = 0
+    while ($waited -lt 15) {
+        if (Test-IPExists -InterfaceAlias $InterfaceAlias -IPAddress $IPAddress) { return $true }
+        Start-Sleep 1
+        $waited++
+    }
+    Write-Log "IP $IPAddress nao apareceu em $InterfaceAlias apos ${waited}s." "AVISO"
+    return $false
+}
+
+function Apply-NATConfig {
+    param ([string]$PubIface, [string]$PrivIface, [string]$NetPrefix)
+
+    # Forwarding em ambas as interfaces (necessário para rotear pacotes)
+    Get-NetIPInterface | Where-Object { $_.InterfaceAlias -eq $PubIface -or $_.InterfaceAlias -eq $PrivIface } |
+        Set-NetIPInterface -Forwarding Enabled -ErrorAction SilentlyContinue
+
+    # WeakHost: permite que pacotes com source IP de outra interface saiam/entrem
+    Set-NetIPInterface -InterfaceAlias $PubIface  -WeakHostSend    Enabled -ErrorAction SilentlyContinue
+    Set-NetIPInterface -InterfaceAlias $PubIface  -WeakHostReceive Enabled -ErrorAction SilentlyContinue
+    Set-NetIPInterface -InterfaceAlias $PrivIface -WeakHostSend    Enabled -ErrorAction SilentlyContinue
+    Set-NetIPInterface -InterfaceAlias $PrivIface -WeakHostReceive Enabled -ErrorAction SilentlyContinue
+
+    # Remove NAT antigo se existir com prefixo diferente
+    $existingNat = Get-NetNat -Name $NatName -ErrorAction SilentlyContinue
+    if ($existingNat -and $existingNat.InternalIPInterfaceAddressPrefix -ne $NetPrefix) {
+        Remove-NetNat -Name $NatName -Confirm:$false -ErrorAction SilentlyContinue
+        $existingNat = $null
+    }
+
+    # Cria NAT se não existir
+    if (-not $existingNat) {
+        New-NetNat -Name $NatName -InternalIPInterfaceAddressPrefix $NetPrefix -ErrorAction SilentlyContinue | Out-Null
+        Write-Log "NetNat criado: $NetPrefix"
+    }
+
+    # Confirma estado
+    $pub  = Get-NetIPInterface -InterfaceAlias $PubIface  -AddressFamily IPv4 -ErrorAction SilentlyContinue
+    $priv = Get-NetIPInterface -InterfaceAlias $PrivIface -AddressFamily IPv4 -ErrorAction SilentlyContinue
+    $nat  = Get-NetNat -Name $NatName -ErrorAction SilentlyContinue
+    Write-Log "NATConfig pub='$PubIface' Forwarding=$($pub.Forwarding) WeakHostSend=$($pub.WeakHostSend) WeakHostReceive=$($pub.WeakHostReceive)"
+    Write-Log "NATConfig priv='$PrivIface' Forwarding=$($priv.Forwarding) WeakHostSend=$($priv.WeakHostSend) WeakHostReceive=$($priv.WeakHostReceive)"
+    Write-Log "NetNat='$($nat.Name)' Prefix=$($nat.InternalIPInterfaceAddressPrefix) State=$($nat.Active)"
+}
+
+# =========================
+# DESATIVA ICS (evita conflito com NetNat)
+# =========================
+try {
+    $ns = New-Object -ComObject HNetCfg.HNetShare -ErrorAction SilentlyContinue
+    foreach ($conn in $ns.EnumEveryConnection()) {
+        $cfg = $ns.INetSharingConfigurationForINetConnection($conn)
+        if ($cfg.SharingEnabled) { $cfg.DisableSharing() }
+    }
+} catch {}
 
 # =========================
 # ESPERA REDE PRIVADA
 # =========================
 if (-not (Wait-InterfaceUp -InterfaceAlias $PrivateInterface -TimeoutSeconds $TimeoutPrivateSeconds)) {
-    Write-Log "Interface privada '$PrivateInterface' não ficou disponível em ${TimeoutPrivateSeconds}s." "ERRO"
+    Write-Log "Interface privada '$PrivateInterface' nao ficou disponivel em ${TimeoutPrivateSeconds}s." "ERRO"
     exit 1
 }
 
@@ -120,134 +171,23 @@ if (-not (Wait-InterfaceUp -InterfaceAlias $PrivateInterface -TimeoutSeconds $Ti
 # =========================
 $PublicInterface = $null
 $i = 0
-
 while (-not $PublicInterface -and $i -lt $TimeoutPublicSeconds) {
     $PublicInterface = Get-PublicInterface -PrivateInterface $PrivateInterface
-
-    if (-not $PublicInterface) {
-        Start-Sleep 1
-        $i++
-    }
+    if (-not $PublicInterface) { Start-Sleep 1; $i++ }
 }
 
 if (-not $PublicInterface) {
-    Write-Log "Não foi possível detectar interface com internet em ${TimeoutPublicSeconds}s." "ERRO"
+    Write-Log "Nao foi possivel detectar interface com internet em ${TimeoutPublicSeconds}s." "ERRO"
     exit 1
 }
 
-# =========================
-# MAPEAMENTO ICS (COM OBJECT)
-# =========================
-$netShare = New-Object -ComObject HNetCfg.HNetShare
-$map = @{}
-
-foreach ($conn in $netShare.EnumEveryConnection()) {
-    $props = $netShare.NetConnectionProps($conn)
-    $map[$props.Name] = $conn
-}
-
-if (-not $map.ContainsKey($PublicInterface) -or -not $map.ContainsKey($PrivateInterface)) {
-    Write-Log "Interfaces não encontradas no sistema ICS (pub='$PublicInterface', priv='$PrivateInterface')." "ERRO"
-    exit 1
-}
-
-$pub  = $map[$PublicInterface]
-$priv = $map[$PrivateInterface]
-
-$cfgPub  = $netShare.INetSharingConfigurationForINetConnection($pub)
-$cfgPriv = $netShare.INetSharingConfigurationForINetConnection($priv)
-
-# =========================
-# VERIFICA SE PRECISA ALTERAR (IDEMPOTENTE)
-# =========================
-$needsChange = $false
-
-if (-not $cfgPub.SharingEnabled -or $cfgPub.SharingConnectionType -ne 0) {
-    $needsChange = $true
-}
-
-if (-not $cfgPriv.SharingEnabled -or $cfgPriv.SharingConnectionType -ne 1) {
-    $needsChange = $true
-}
-
-# =========================
-# APLICA ICS SE NECESSÁRIO
-# =========================
-function Apply-NetworkConfig {
-    param ([string]$PubIface, [string]$PrivIface)
-
-    # Forwarding em ambas as interfaces
-    Get-NetIPInterface | Where-Object { $_.InterfaceAlias -eq $PubIface -or $_.InterfaceAlias -eq $PrivIface } |
-        Set-NetIPInterface -Forwarding Enabled -ErrorAction SilentlyContinue
-
-    Set-NetIPInterface -InterfaceAlias $PubIface  -WeakHostSend    Enabled -ErrorAction SilentlyContinue
-    Set-NetIPInterface -InterfaceAlias $PubIface  -WeakHostReceive Enabled -ErrorAction SilentlyContinue
-    Set-NetIPInterface -InterfaceAlias $PrivIface -WeakHostSend    Enabled -ErrorAction SilentlyContinue
-    Set-NetIPInterface -InterfaceAlias $PrivIface -WeakHostReceive Enabled -ErrorAction SilentlyContinue
-
-    # Confirma o que foi aplicado
-    $pub  = Get-NetIPInterface -InterfaceAlias $PubIface  -AddressFamily IPv4 -ErrorAction SilentlyContinue
-    $priv = Get-NetIPInterface -InterfaceAlias $PrivIface -AddressFamily IPv4 -ErrorAction SilentlyContinue
-    Write-Log "NetworkConfig $PubIface  -> Forwarding=$($pub.Forwarding) WeakHostSend=$($pub.WeakHostSend) WeakHostReceive=$($pub.WeakHostReceive)"
-    Write-Log "NetworkConfig $PrivIface -> Forwarding=$($priv.Forwarding) WeakHostSend=$($priv.WeakHostSend) WeakHostReceive=$($priv.WeakHostReceive)"
-}
-
-if ($needsChange) {
-    $cfgPub.DisableSharing()
-    $cfgPriv.DisableSharing()
-
-    $cfgPub.EnableSharing(0)   # Internet
-    $cfgPriv.EnableSharing(1)  # Rede privada
-
-    Write-Log "ICS configurado (pub='$PublicInterface', priv='$PrivateInterface')."
-
-    # Aguarda o ICS estabilizar antes de configurar IP
-    # (o ICS remove IPs da interface privada ao ser ativado)
-    Start-Sleep -Seconds 3
-}
-
-# Sempre reaplica Forwarding/WeakHost (o ICS pode resetar ao ser ativado)
-Apply-NetworkConfig -PubIface $PublicInterface -PrivIface $PrivateInterface
+Write-Log "Interface publica detectada: '$PublicInterface'."
 
 # =========================
 # CONFIGURA IP FIXO (LAN)
 # =========================
-function Test-IPExists {
-    param ([string]$InterfaceAlias, [string]$IPAddress)
-    # Usa netsh como fonte de verdade independente do PolicyStore
-    $out = netsh interface ipv4 show addresses name="$InterfaceAlias" 2>$null
-    return ($out -match [regex]::Escape($IPAddress))
-}
-
-function Set-FixedIP {
-    param ([string]$InterfaceAlias, [string]$IPAddress, [int]$PrefixLen)
-
-    # Remove apenas se o IP específico já existir, para não brigar com o ICS
-    $existing = Get-NetIPAddress -InterfaceAlias $InterfaceAlias -IPAddress $IPAddress -ErrorAction SilentlyContinue
-    if ($existing) {
-        Remove-NetIPAddress -InterfaceAlias $InterfaceAlias -IPAddress $IPAddress -Confirm:$false -ErrorAction SilentlyContinue
-    }
-
-    New-NetIPAddress `
-        -InterfaceAlias $InterfaceAlias `
-        -IPAddress $IPAddress `
-        -PrefixLength $PrefixLen `
-        -ErrorAction SilentlyContinue | Out-Null
-
-    # Aguarda IP aparecer (via netsh, independente de PolicyStore/AddressState)
-    $waited = 0
-    while ($waited -lt 15) {
-        if (Test-IPExists -InterfaceAlias $InterfaceAlias -IPAddress $IPAddress) { return $true }
-        Start-Sleep 1
-        $waited++
-    }
-
-    Write-Log "IP $IPAddress nao apareceu em $InterfaceAlias apos ${waited}s." "AVISO"
-    return $false
-}
-
 if (Test-IPExists -InterfaceAlias $PrivateInterface -IPAddress $PrivateIP) {
-    Write-Log "IP fixo ja esta presente: $PrivateIP na interface '$PrivateInterface'."
+    Write-Log "IP fixo ja presente: $PrivateIP na interface '$PrivateInterface'."
 } else {
     if (Set-FixedIP -InterfaceAlias $PrivateInterface -IPAddress $PrivateIP -PrefixLen $PrefixLength) {
         Write-Log "IP fixo configurado: $PrivateIP na interface '$PrivateInterface'."
@@ -255,49 +195,27 @@ if (Test-IPExists -InterfaceAlias $PrivateInterface -IPAddress $PrivateIP) {
 }
 
 # =========================
+# APLICA NAT E FORWARDING
+# =========================
+Apply-NATConfig -PubIface $PublicInterface -PrivIface $PrivateInterface -NetPrefix $NetworkPrefix
+
+# =========================
 # LOOP DE MONITORAMENTO
-# Mantém o serviço vivo e reaplica config se a rede mudar
 # =========================
 Write-Log "Servico ativo. Monitorando a cada 60s..."
 
 while ($true) {
     Start-Sleep -Seconds 60
 
-    # Reverifica interface publica
     $newPublic = Get-PublicInterface -PrivateInterface $PrivateInterface
-
     if (-not $newPublic) { continue }
 
-    # Reaplica ICS se a interface publica tiver mudado
     if ($newPublic -ne $PublicInterface) {
-        Write-Log "Interface publica mudou: '$PublicInterface' -> '$newPublic'. Reaplicando ICS..."
+        Write-Log "Interface publica mudou: '$PublicInterface' -> '$newPublic'. Reaplicando..."
         $PublicInterface = $newPublic
-
-        if (-not $map.ContainsKey($PublicInterface)) {
-            foreach ($conn in $netShare.EnumEveryConnection()) {
-                $props = $netShare.NetConnectionProps($conn)
-                $map[$props.Name] = $conn
-            }
-        }
-
-        if ($map.ContainsKey($PublicInterface)) {
-            $pub     = $map[$PublicInterface]
-            $cfgPub  = $netShare.INetSharingConfigurationForINetConnection($pub)
-            $cfgPriv = $netShare.INetSharingConfigurationForINetConnection($priv)
-
-            $cfgPub.DisableSharing()
-            $cfgPriv.DisableSharing()
-            $cfgPub.EnableSharing(0)
-            $cfgPriv.EnableSharing(1)
-
-            Start-Sleep -Seconds 3
-            Apply-NetworkConfig -PubIface $PublicInterface -PrivIface $PrivateInterface
-
-            Write-Log "ICS reaplicado (pub='$PublicInterface', priv='$PrivateInterface')."
-        }
+        Apply-NATConfig -PubIface $PublicInterface -PrivIface $PrivateInterface -NetPrefix $NetworkPrefix
     }
 
-    # Reaplica IP fixo se tiver sumido
     if (-not (Test-IPExists -InterfaceAlias $PrivateInterface -IPAddress $PrivateIP)) {
         if (Set-FixedIP -InterfaceAlias $PrivateInterface -IPAddress $PrivateIP -PrefixLen $PrefixLength) {
             Write-Log "IP fixo reaplicado: $PrivateIP na interface '$PrivateInterface'."
