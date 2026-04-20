@@ -31,16 +31,12 @@ function Get-ServiceRunning {
 }
 
 function Get-ICSWorking {
-    # Lê o IP privado do config
-    $srcIP = "10.10.10.1"
-    if (Test-Path $configPath) {
-        foreach ($line in Get-Content $configPath) {
-            if ($line -match "^private_ip=(.+)$") { $srcIP = $Matches[1].Trim() }
-        }
-    }
+    # Verifica se o NetNat AICS-NAT existe e está ativo
+    $nat = Get-NetNat -Name "AICS-NAT" -ErrorAction SilentlyContinue
+    if (-not $nat) { return $false }
 
-    # Teste real: ping -S <IP privado> 8.8.8.8 com 1 pacote e timeout de 2s
-    $result = & ping.exe -S $srcIP -n 1 -w 2000 8.8.8.8 2>&1
+    # Verifica se há internet acessível (via qualquer interface)
+    $ping = & ping.exe -n 1 -w 2000 8.8.8.8 2>&1
     return ($LASTEXITCODE -eq 0)
 }
 
