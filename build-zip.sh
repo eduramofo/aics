@@ -32,8 +32,20 @@ done
 # remove zip anterior se existir
 rm -f "$OUTPUT"
 
-# cria o zip apenas com os arquivos existentes
-zip "$OUTPUT" "${FILES[@]}" 2>/dev/null || \
-    zip "$OUTPUT" $(for f in "${FILES[@]}"; do [[ -f "$f" ]] && echo "$f"; done)
+# coleta apenas os arquivos existentes
+EXISTING=()
+for f in "${FILES[@]}"; do
+    [[ -f "$f" ]] && EXISTING+=("$f")
+done
+
+# cria o zip: usa 'zip' no Linux, PowerShell no Windows
+if command -v zip &>/dev/null; then
+    zip "$OUTPUT" "${EXISTING[@]}"
+else
+    powershell -NoProfile -Command "
+        \$files = @($(printf "'%s'," "${EXISTING[@]}" | sed 's/,$//'))
+        Compress-Archive -Path \$files -DestinationPath '${OUTPUT}' -Force
+    "
+fi
 
 echo "Gerado: $DIR/$OUTPUT"
