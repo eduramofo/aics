@@ -126,20 +126,33 @@ try {
     }
 
     if (-not $preflightOk) {
+        # Detecta se VirtualMachinePlatform ja esta habilitado (reboot pendente) ou nao
+        $vmp = Get-WindowsOptionalFeature -Online -FeatureName VirtualMachinePlatform -ErrorAction SilentlyContinue
+        $vmpEnabled = ($vmp -and $vmp.State -eq 'Enabled')
+
         Write-Host "" 
         Write-Host "=========================================="  -ForegroundColor Red
-        Write-Host "  INSTALACAO ABORTADA - Requisito ausente" -ForegroundColor Red
+        Write-Host "  INSTALACAO ABORTADA - Reinicializacao necessaria" -ForegroundColor Red
         Write-Host "==========================================" -ForegroundColor Red
         Write-Host ""
-        Write-Host "O AICS requer o componente 'Virtual Machine Platform' do Windows." -ForegroundColor Yellow
-        Write-Host ""
-        Write-Host "Para habilitar, execute no PowerShell como Administrador:" -ForegroundColor Cyan
-        Write-Host "  Enable-WindowsOptionalFeature -Online -FeatureName VirtualMachinePlatform -NoRestart" -ForegroundColor White
-        Write-Host ""
-        Write-Host "Ou via 'Ativar ou desativar recursos do Windows':" -ForegroundColor Cyan
-        Write-Host "  Marque: Plataforma de Maquina Virtual (Virtual Machine Platform)" -ForegroundColor White
-        Write-Host ""
-        Write-Host "Reinicie o computador e instale novamente." -ForegroundColor Yellow
+
+        if ($vmpEnabled) {
+            Write-Host "O componente 'Virtual Machine Platform' JA esta habilitado," -ForegroundColor Yellow
+            Write-Host "mas o Windows precisa ser reiniciado para ativa-lo completamente." -ForegroundColor Yellow
+            Write-Host ""
+            Write-Host "  >>> REINICIE O COMPUTADOR e instale novamente. <<<" -ForegroundColor Cyan
+        } else {
+            Write-Host "O AICS requer o componente 'Virtual Machine Platform' do Windows." -ForegroundColor Yellow
+            Write-Host ""
+            Write-Host "Passo 1 - Execute no PowerShell como Administrador:" -ForegroundColor Cyan
+            Write-Host "  Enable-WindowsOptionalFeature -Online -FeatureName VirtualMachinePlatform -NoRestart" -ForegroundColor White
+            Write-Host ""
+            Write-Host "  Ou via 'Ativar ou desativar recursos do Windows':" -ForegroundColor Cyan
+            Write-Host "  Marque: Plataforma de Maquina Virtual (Virtual Machine Platform)" -ForegroundColor White
+            Write-Host ""
+            Write-Host "Passo 2 - Reinicie o computador e instale novamente." -ForegroundColor Cyan
+        }
+
         Write-Host ""
         Stop-Transcript -ErrorAction SilentlyContinue
         pause
