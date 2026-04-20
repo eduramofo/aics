@@ -174,6 +174,18 @@ if (-not $cfgPriv.SharingEnabled -or $cfgPriv.SharingConnectionType -ne 1) {
 # =========================
 # APLICA ICS SE NECESSÁRIO
 # =========================
+function Apply-NetworkConfig {
+    param ([string]$PubIface, [string]$PrivIface)
+
+    # Forwarding em ambas as interfaces
+    Get-NetIPInterface | Where-Object { $_.InterfaceAlias -eq $PubIface -or $_.InterfaceAlias -eq $PrivIface } |
+        Set-NetIPInterface -Forwarding Enabled -ErrorAction SilentlyContinue
+
+    # WeakHostSend no Wi-Fi: permite que pacotes com source IP privado saiam pela interface pública
+    Set-NetIPInterface -InterfaceAlias $PubIface  -WeakHostSend    Enabled -ErrorAction SilentlyContinue
+    Set-NetIPInterface -InterfaceAlias $PrivIface -WeakHostReceive Enabled -ErrorAction SilentlyContinue
+}
+
 if ($needsChange) {
     $cfgPub.DisableSharing()
     $cfgPriv.DisableSharing()
@@ -188,9 +200,8 @@ if ($needsChange) {
     Start-Sleep -Seconds 3
 }
 
-# Habilita IP forwarding explicitamente
-Get-NetIPInterface | Where-Object { $_.InterfaceAlias -eq $PublicInterface -or $_.InterfaceAlias -eq $PrivateInterface } |
-    Set-NetIPInterface -Forwarding Enabled -ErrorAction SilentlyContinue
+# Sempre reaplica Forwarding/WeakHost (o ICS pode resetar ao ser ativado)
+Apply-NetworkConfig -PubIface $PublicInterface -PrivIface $PrivateInterface
 
 # =========================
 # CONFIGURA IP FIXO (LAN)
@@ -205,19 +216,19 @@ function Set-FixedIP {
         -PrefixLength $PrefixLen `
         -ErrorAction SilentlyContinue | Out-Null
 
-    # Aguarda DAD concluir (Tentative=1 -> Preferred=4)
+    # Aguarda DAD concluir (Tentative -> Preferred)
     $waited = 0
     while ($waited -lt 15) {
         $ip = Get-NetIPAddress -InterfaceAlias $InterfaceAlias -IPAddress $IPAddress -ErrorAction SilentlyContinue |
             Where-Object { $_.PolicyStore -eq 'ActiveStore' }
-        if ($ip -and [int]$ip.AddressState -eq 4) { return $true }
+        if ($ip -and $ip.AddressState.ToString() -eq 'Preferred') { return $true }
         Start-Sleep 1
         $waited++
     }
 
     $ip = Get-NetIPAddress -InterfaceAlias $InterfaceAlias -IPAddress $IPAddress -ErrorAction SilentlyContinue |
         Where-Object { $_.PolicyStore -eq 'ActiveStore' }
-    $stateVal = if ($ip) { [int]$ip.AddressState } else { 'ausente' }
+    $stateVal = if ($ip) { $ip.AddressState.ToString() } else { 'ausente' }
     Write-Log "IP $IPAddress ficou em estado '$stateVal' apos ${waited}s. Pode haver conflito ou link inativo." "AVISO"
     return $false
 }
@@ -225,7 +236,7 @@ function Set-FixedIP {
 $currentIP = Get-NetIPAddress -InterfaceAlias $PrivateInterface -ErrorAction SilentlyContinue |
     Where-Object { $_.IPAddress -eq $PrivateIP -and $_.PolicyStore -eq 'ActiveStore' }
 
-if ($currentIP -and [int]$currentIP.AddressState -eq 4) {
+if ($currentIP -and $currentIP.AddressState.ToString() -eq 'Preferred') {
     Write-Log "IP fixo ja esta correto e ativo: $PrivateIP na interface '$PrivateInterface'."
 } else {
     if (Set-FixedIP -InterfaceAlias $PrivateInterface -IPAddress $PrivateIP -PrefixLen $PrefixLength) {
@@ -269,6 +280,9 @@ while ($true) {
             $cfgPub.EnableSharing(0)
             $cfgPriv.EnableSharing(1)
 
+            Start-Sleep -Seconds 3
+            Apply-NetworkConfig -PubIface $PublicInterface -PrivIface $PrivateInterface
+
             Write-Log "ICS reaplicado (pub='$PublicInterface', priv='$PrivateInterface')."
         }
     }
@@ -277,7 +291,7 @@ while ($true) {
     $checkIP = Get-NetIPAddress -InterfaceAlias $PrivateInterface -ErrorAction SilentlyContinue |
         Where-Object { $_.IPAddress -eq $PrivateIP -and $_.PolicyStore -eq 'ActiveStore' }
 
-    if (-not $checkIP -or [int]$checkIP.AddressState -ne 4) {
+    if (-not $checkIP -or $checkIP.AddressState.ToString() -ne 'Preferred') {
         if (Set-FixedIP -InterfaceAlias $PrivateInterface -IPAddress $PrivateIP -PrefixLen $PrefixLength) {
             Write-Log "IP fixo reaplicado: $PrivateIP na interface '$PrivateInterface'."
         }
