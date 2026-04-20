@@ -168,7 +168,7 @@ try {
     if ($icsMode) {
         Write-Host ""
         Write-Host "  AVISO: NetNat indisponivel. O AICS usara ICS como fallback." -ForegroundColor Yellow
-        Write-Host "  O IP da interface Ethernet sera 192.168.137.1 (fixado pelo Windows)." -ForegroundColor Yellow
+        Write-Host "  O IP da interface Ethernet sera o configurado em config.txt (ex: 10.10.10.1)." -ForegroundColor Yellow
         Write-Host "  Dispositivos conectados receberao IP automaticamente via DHCP." -ForegroundColor Yellow
         Write-Host ""
     }

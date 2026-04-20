@@ -117,16 +117,28 @@ function Set-FixedIP {
 }
 
 function Apply-ICSConfig {
-    param ([string]$PubIface, [string]$PrivIface)
+    param ([string]$PubIface, [string]$PrivIface, [string]$IPAddress, [int]$PrefixLen)
 
-    # Inicia SharedAccess
+    # Converte prefixo em mascara
+    $mask = ([System.Net.IPAddress]([uint32]::MaxValue -shl (32 - $PrefixLen) -band [uint32]::MaxValue)).ToString()
+
+    # Para o SharedAccess para poder alterar o registro
     $sa = Get-Service -Name SharedAccess -ErrorAction SilentlyContinue
     if (-not $sa) { throw "Servico SharedAccess nao encontrado." }
-    Set-Service SharedAccess -StartupType Manual -ErrorAction SilentlyContinue
-    if ($sa.Status -ne 'Running') {
-        Start-Service SharedAccess -ErrorAction Stop
-        Start-Sleep 2
+    if ($sa.Status -eq 'Running') {
+        Stop-Service SharedAccess -Force -ErrorAction SilentlyContinue
+        Start-Sleep 1
     }
+
+    # Define o IP privado do ICS via registro (default e 192.168.137.1)
+    $regPath = "HKLM:\SYSTEM\CurrentControlSet\Services\SharedAccess\Parameters"
+    Set-ItemProperty -Path $regPath -Name "ScopeAddress"     -Value $IPAddress -ErrorAction SilentlyContinue
+    Set-ItemProperty -Path $regPath -Name "ScopeAddressMask" -Value $mask       -ErrorAction SilentlyContinue
+
+    # Inicia SharedAccess
+    Set-Service SharedAccess -StartupType Manual -ErrorAction SilentlyContinue
+    Start-Service SharedAccess -ErrorAction Stop
+    Start-Sleep 2
 
     $ns = New-Object -ComObject HNetCfg.HNetShare -ErrorAction Stop
 
@@ -156,7 +168,7 @@ function Apply-ICSConfig {
     $pubCfg.EnableSharing(0)   # 0 = publica (internet)
     $privCfg.EnableSharing(1)  # 1 = privada (LAN)
 
-    Write-Log "ICS ativado via COM: '$PubIface' -> '$PrivIface'. IP privado: 192.168.137.1 (DHCP automatico)."
+    Write-Log "ICS ativado via COM: '$PubIface' -> '$PrivIface'. IP privado: $IPAddress/$PrefixLen (DHCP automatico)."
 }
 
 function Apply-NATConfig {
@@ -302,7 +314,7 @@ if (Test-IPExists -InterfaceAlias $PrivateInterface -IPAddress $PrivateIP) {
 # APLICA NAT / ICS
 # =========================
 if ($script:UseICS) {
-    Apply-ICSConfig -PubIface $PublicInterface -PrivIface $PrivateInterface
+    Apply-ICSConfig -PubIface $PublicInterface -PrivIface $PrivateInterface -IPAddress $PrivateIP -PrefixLen $PrefixLength
 } else {
     Apply-NATConfig -PubIface $PublicInterface -PrivIface $PrivateInterface -NetPrefix $NetworkPrefix
 }
@@ -322,7 +334,7 @@ while ($true) {
         Write-Log "Interface publica mudou: '$PublicInterface' -> '$newPublic'. Reaplicando..."
         $PublicInterface = $newPublic
         if ($script:UseICS) {
-            Apply-ICSConfig -PubIface $PublicInterface -PrivIface $PrivateInterface
+            Apply-ICSConfig -PubIface $PublicInterface -PrivIface $PrivateInterface -IPAddress $PrivateIP -PrefixLen $PrefixLength
         } else {
             Apply-NATConfig -PubIface $PublicInterface -PrivIface $PrivateInterface -NetPrefix $NetworkPrefix
         }
