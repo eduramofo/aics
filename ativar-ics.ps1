@@ -90,8 +90,10 @@ function Get-PublicInterface {
         [string]$PrivateInterface
     )
 
-    $routes = Get-NetRoute -DestinationPrefix "0.0.0.0/0" |
+    $routes = Get-NetRoute -DestinationPrefix "0.0.0.0/0" -ErrorAction SilentlyContinue |
         Sort-Object RouteMetric, InterfaceMetric
+
+    if (-not $routes) { return $null }
 
     foreach ($route in $routes) {
         $iface = Get-NetAdapter -InterfaceIndex $route.InterfaceIndex -ErrorAction SilentlyContinue

@@ -2,9 +2,16 @@ Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 
 # CONFIG
-$ServiceName = "AICS-Service"
-$BasePath    = "C:\AICS"
-$LogFile     = "$BasePath\aics.log"
+$ServiceName      = "AICS-Service"
+$BasePath         = "C:\AICS"
+$LogFile          = "$BasePath\aics.log"
+$PrivateInterface = "Ethernet"
+$configPath       = "$BasePath\config.txt"
+if (Test-Path $configPath) {
+    foreach ($line in Get-Content $configPath) {
+        if ($line -match "^interface=(.+)$") { $PrivateInterface = $Matches[1].Trim() }
+    }
+}
 
 function New-TrayIcon {
     param ([System.Drawing.Color]$Color)
@@ -19,6 +26,33 @@ function New-TrayIcon {
 function Get-ServiceRunning {
     $svc = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
     return ($svc -and $svc.Status -eq "Running")
+}
+
+function Get-ICSWorking {
+    # Verifica rota padrão existente e saindo pela interface pública
+    $defaultRoute = Get-NetRoute -DestinationPrefix "0.0.0.0/0" -ErrorAction SilentlyContinue |
+        Sort-Object RouteMetric, InterfaceMetric | Select-Object -First 1
+    if (-not $defaultRoute) { return $false }
+
+    $routeIface = (Get-NetAdapter -InterfaceIndex $defaultRoute.InterfaceIndex -ErrorAction SilentlyContinue).Name
+    if ($routeIface -eq $PrivateInterface) { return $false }
+
+    # Verifica ICS habilitado em ambas as interfaces
+    try {
+        $ns     = New-Object -ComObject HNetCfg.HNetShare
+        $pubOk  = $false
+        $privOk = $false
+        foreach ($c in $ns.EnumEveryConnection()) {
+            $cfg = $ns.INetSharingConfigurationForINetConnection($c)
+            if ($cfg.SharingEnabled) {
+                if ($cfg.SharingConnectionType -eq 0) { $pubOk  = $true }
+                if ($cfg.SharingConnectionType -eq 1) { $privOk = $true }
+            }
+        }
+        return ($pubOk -and $privOk)
+    } catch {
+        return $false
+    }
 }
 
 $tray         = New-Object System.Windows.Forms.NotifyIcon
@@ -73,18 +107,24 @@ $tray.ContextMenuStrip = $menu
 
 function Update-Status {
     $running = Get-ServiceRunning
-    if ($running) {
-        $tray.Icon           = New-TrayIcon([System.Drawing.Color]::FromArgb(34, 197, 94))
-        $tray.Text           = "AICS - Ativo"
-        $itemStatus.Text     = "[ON]  Servico ativo"
-        $itemToggle.Text     = "Parar servico"
-        $itemRestart.Enabled = $true
-    } else {
+    if (-not $running) {
         $tray.Icon           = New-TrayIcon([System.Drawing.Color]::FromArgb(220, 38, 38))
         $tray.Text           = "AICS - Parado"
         $itemStatus.Text     = "[OFF] Servico parado"
         $itemToggle.Text     = "Iniciar servico"
         $itemRestart.Enabled = $false
+    } elseif (Get-ICSWorking) {
+        $tray.Icon           = New-TrayIcon([System.Drawing.Color]::FromArgb(34, 197, 94))
+        $tray.Text           = "AICS - Ativo e funcionando"
+        $itemStatus.Text     = "[ON]  ICS ativo e funcionando"
+        $itemToggle.Text     = "Parar servico"
+        $itemRestart.Enabled = $true
+    } else {
+        $tray.Icon           = New-TrayIcon([System.Drawing.Color]::FromArgb(234, 179, 8))
+        $tray.Text           = "AICS - Servico ativo, ICS falhou"
+        $itemStatus.Text     = "[!!]  Servico ativo, sem internet"
+        $itemToggle.Text     = "Parar servico"
+        $itemRestart.Enabled = $true
     }
 }
 
