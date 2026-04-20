@@ -33,7 +33,7 @@ if (-not $BasePath) { $BasePath = "C:\AICS" }
 $PrefixLength           = 24
 $TimeoutPrivateSeconds  = 30
 $TimeoutPublicSeconds   = 30
-$LogFile                = "$BasePath\aics.log"
+$LogFile                = "$BasePath\log.txt"
 
 # =========================
 # LOG
@@ -187,18 +187,39 @@ if ($needsChange) {
 # =========================
 # CONFIGURA IP FIXO (LAN)
 # =========================
-$currentIP = Get-NetIPAddress -InterfaceAlias $PrivateInterface -ErrorAction SilentlyContinue |
-    Where-Object { $_.IPAddress -eq $PrivateIP }
+function Set-FixedIP {
+    param ([string]$InterfaceAlias, [string]$IPAddress, [int]$PrefixLen)
 
-if (-not $currentIP) {
-    Remove-NetIPAddress -InterfaceAlias $PrivateInterface -Confirm:$false -ErrorAction SilentlyContinue
-
+    Remove-NetIPAddress -InterfaceAlias $InterfaceAlias -Confirm:$false -ErrorAction SilentlyContinue
     New-NetIPAddress `
-        -InterfaceAlias $PrivateInterface `
-        -IPAddress $PrivateIP `
-        -PrefixLength $PrefixLength
+        -InterfaceAlias $InterfaceAlias `
+        -IPAddress $IPAddress `
+        -PrefixLength $PrefixLen `
+        -ErrorAction SilentlyContinue | Out-Null
 
-    Write-Log "IP fixo configurado: $PrivateIP na interface '$PrivateInterface'."
+    # Aguarda DAD concluir (Tentative -> Preferred)
+    $waited = 0
+    while ($waited -lt 15) {
+        $ip = Get-NetIPAddress -InterfaceAlias $InterfaceAlias -IPAddress $IPAddress -ErrorAction SilentlyContinue |
+            Where-Object { $_.PolicyStore -eq 'ActiveStore' }
+        if ($ip -and $ip.AddressState -eq 'Preferred') { return $true }
+        Start-Sleep 1
+        $waited++
+    }
+
+    $ip = Get-NetIPAddress -InterfaceAlias $InterfaceAlias -IPAddress $IPAddress -ErrorAction SilentlyContinue |
+        Where-Object { $_.PolicyStore -eq 'ActiveStore' }
+    Write-Log "IP $IPAddress ficou em estado '$($ip.AddressState)' apos ${waited}s. Pode haver conflito ou link inativo." "AVISO"
+    return $false
+}
+
+$currentIP = Get-NetIPAddress -InterfaceAlias $PrivateInterface -ErrorAction SilentlyContinue |
+    Where-Object { $_.IPAddress -eq $PrivateIP -and $_.PolicyStore -eq 'ActiveStore' }
+
+if (-not $currentIP -or $currentIP.AddressState -ne 'Preferred') {
+    if (Set-FixedIP -InterfaceAlias $PrivateInterface -IPAddress $PrivateIP -PrefixLen $PrefixLength) {
+        Write-Log "IP fixo configurado: $PrivateIP na interface '$PrivateInterface'."
+    }
 }
 
 # =========================
@@ -241,13 +262,13 @@ while ($true) {
         }
     }
 
-    # Reaplica IP fixo se tiver sumido
+    # Reaplica IP fixo se tiver sumido ou preso em Tentative
     $checkIP = Get-NetIPAddress -InterfaceAlias $PrivateInterface -ErrorAction SilentlyContinue |
-        Where-Object { $_.IPAddress -eq $PrivateIP }
+        Where-Object { $_.IPAddress -eq $PrivateIP -and $_.PolicyStore -eq 'ActiveStore' }
 
-    if (-not $checkIP) {
-        Remove-NetIPAddress -InterfaceAlias $PrivateInterface -Confirm:$false -ErrorAction SilentlyContinue
-        New-NetIPAddress -InterfaceAlias $PrivateInterface -IPAddress $PrivateIP -PrefixLength $PrefixLength -ErrorAction SilentlyContinue
-        Write-Log "IP fixo reaplicado: $PrivateIP na interface '$PrivateInterface'."
+    if (-not $checkIP -or $checkIP.AddressState -ne 'Preferred') {
+        if (Set-FixedIP -InterfaceAlias $PrivateInterface -IPAddress $PrivateIP -PrefixLen $PrefixLength) {
+            Write-Log "IP fixo reaplicado: $PrivateIP na interface '$PrivateInterface'."
+        }
     }
 }

@@ -30,7 +30,7 @@ else { Fail "C:\AICS NAO existe - setup nao rodou corretamente" }
 
 Write-Host ""
 Write-Host "[ Arquivos em C:\AICS ]"
-foreach ($f in @("ativar-ics.ps1","tray.ps1","config.txt","nssm.exe","aics.log")) {
+foreach ($f in @("ativar-ics.ps1","tray.ps1","config.txt","nssm.exe","log.txt")) {
     if (Test-Path "$DestPath\$f") { Ok $f } else { Fail "$f ausente" }
 }
 
@@ -109,7 +109,7 @@ if ($pingResult) {
 
 Write-Host ""
 Write-Host "[ Ultimas linhas do log ]"
-$log = "$DestPath\aics.log"
+$log = "$DestPath\log.txt"
 if (Test-Path $log) {
     Ok "Log encontrado"
     Get-Content $log -Tail 5 | ForEach-Object { Info $_ }

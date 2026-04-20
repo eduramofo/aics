@@ -44,7 +44,7 @@ $DestPath    = "C:\AICS"
 
 $ScriptPath  = "$DestPath\ativar-ics.ps1"
 $TrayPath    = "$DestPath\tray.ps1"
-$LogFile     = "$DestPath\aics.log"
+$LogFile     = "$DestPath\log.txt"
 $nssm        = "$DestPath\nssm.exe"
 
 Write-Host "DIAGNOSTICO:"

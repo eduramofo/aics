@@ -30,7 +30,7 @@ if (-not $BasePath) { $BasePath = Split-Path -Parent $MyInvocation.MyCommand.Def
 if (-not $BasePath) { $BasePath = "C:\AICS" }
 
 $ScriptPath  = "$BasePath\ativar-ics.ps1"
-$LogFile     = "$BasePath\aics.log"
+$LogFile     = "$BasePath\log.txt"
 
 # NSSM
 $nssm = "$BasePath\nssm.exe"

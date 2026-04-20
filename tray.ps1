@@ -4,7 +4,7 @@ Add-Type -AssemblyName System.Drawing
 # CONFIG
 $ServiceName      = "AICS-Service"
 $BasePath         = "C:\AICS"
-$LogFile          = "$BasePath\aics.log"
+$LogFile          = "$BasePath\log.txt"
 $PrivateInterface = "Ethernet"
 $configPath       = "$BasePath\config.txt"
 if (Test-Path $configPath) {
@@ -29,30 +29,17 @@ function Get-ServiceRunning {
 }
 
 function Get-ICSWorking {
-    # Verifica rota padrão existente e saindo pela interface pública
-    $defaultRoute = Get-NetRoute -DestinationPrefix "0.0.0.0/0" -ErrorAction SilentlyContinue |
-        Sort-Object RouteMetric, InterfaceMetric | Select-Object -First 1
-    if (-not $defaultRoute) { return $false }
-
-    $routeIface = (Get-NetAdapter -InterfaceIndex $defaultRoute.InterfaceIndex -ErrorAction SilentlyContinue).Name
-    if ($routeIface -eq $PrivateInterface) { return $false }
-
-    # Verifica ICS habilitado em ambas as interfaces
-    try {
-        $ns     = New-Object -ComObject HNetCfg.HNetShare
-        $pubOk  = $false
-        $privOk = $false
-        foreach ($c in $ns.EnumEveryConnection()) {
-            $cfg = $ns.INetSharingConfigurationForINetConnection($c)
-            if ($cfg.SharingEnabled) {
-                if ($cfg.SharingConnectionType -eq 0) { $pubOk  = $true }
-                if ($cfg.SharingConnectionType -eq 1) { $privOk = $true }
-            }
+    # Lê o IP privado do config
+    $srcIP = "10.10.10.1"
+    if (Test-Path $configPath) {
+        foreach ($line in Get-Content $configPath) {
+            if ($line -match "^private_ip=(.+)$") { $srcIP = $Matches[1].Trim() }
         }
-        return ($pubOk -and $privOk)
-    } catch {
-        return $false
     }
+
+    # Teste real: ping -S <IP privado> 8.8.8.8 com 1 pacote e timeout de 2s
+    $result = & ping.exe -S $srcIP -n 1 -w 2000 8.8.8.8 2>&1
+    return ($LASTEXITCODE -eq 0)
 }
 
 $tray         = New-Object System.Windows.Forms.NotifyIcon
@@ -128,9 +115,15 @@ function Update-Status {
     }
 }
 
+$script:_checking = $false
+
 $timer          = New-Object System.Windows.Forms.Timer
-$timer.Interval = 5000
-$timer.Add_Tick({ Update-Status })
+$timer.Interval = 20000
+$timer.Add_Tick({
+    if ($script:_checking) { return }
+    $script:_checking = $true
+    try { Update-Status } finally { $script:_checking = $false }
+})
 $timer.Start()
 
 Update-Status
