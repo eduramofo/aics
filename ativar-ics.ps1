@@ -181,12 +181,16 @@ function Apply-NetworkConfig {
     Get-NetIPInterface | Where-Object { $_.InterfaceAlias -eq $PubIface -or $_.InterfaceAlias -eq $PrivIface } |
         Set-NetIPInterface -Forwarding Enabled -ErrorAction SilentlyContinue
 
-    # WeakHostSend no Wi-Fi: permite que pacotes com source IP privado saiam pela interface pública
-    # WeakHostReceive no Wi-Fi: permite que respostas endereçadas a 10.10.10.1 sejam aceitas pelo Wi-Fi
     Set-NetIPInterface -InterfaceAlias $PubIface  -WeakHostSend    Enabled -ErrorAction SilentlyContinue
     Set-NetIPInterface -InterfaceAlias $PubIface  -WeakHostReceive Enabled -ErrorAction SilentlyContinue
     Set-NetIPInterface -InterfaceAlias $PrivIface -WeakHostSend    Enabled -ErrorAction SilentlyContinue
     Set-NetIPInterface -InterfaceAlias $PrivIface -WeakHostReceive Enabled -ErrorAction SilentlyContinue
+
+    # Confirma o que foi aplicado
+    $pub  = Get-NetIPInterface -InterfaceAlias $PubIface  -AddressFamily IPv4 -ErrorAction SilentlyContinue
+    $priv = Get-NetIPInterface -InterfaceAlias $PrivIface -AddressFamily IPv4 -ErrorAction SilentlyContinue
+    Write-Log "NetworkConfig $PubIface  -> Forwarding=$($pub.Forwarding) WeakHostSend=$($pub.WeakHostSend) WeakHostReceive=$($pub.WeakHostReceive)"
+    Write-Log "NetworkConfig $PrivIface -> Forwarding=$($priv.Forwarding) WeakHostSend=$($priv.WeakHostSend) WeakHostReceive=$($priv.WeakHostReceive)"
 }
 
 if ($needsChange) {
