@@ -1,0 +1,2 @@
+interface=Ethernet 2
+private_ip=10.10.10.1
