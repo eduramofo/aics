@@ -1,0 +1,51 @@
+========================================
+ COMO INSTALAR O AICS
+========================================
+
+PRE-REQUISITO
+  - Windows com permissao de Administrador
+  - Servico ICS (Internet Connection Sharing) habilitado no Windows
+
+----------------------------------------
+ PASSO 1 — CONFIGURAR
+----------------------------------------
+Abra o arquivo config.txt e ajuste:
+
+  interface=Ethernet 2     <- nome da sua placa de rede PRIVADA (ex: Ethernet, Wi-Fi 2)
+  private_ip=10.10.10.1   <- IP que esta maquina tera na rede compartilhada
+
+Para descobrir o nome correto da interface, abra o PowerShell e execute:
+  Get-NetAdapter | Select-Object Name, Status
+
+----------------------------------------
+ PASSO 2 — INSTALAR
+----------------------------------------
+Clique com o botao direito em setup.ps1
+Selecione: "Executar com PowerShell"
+Aceite o UAC (prompt de Administrador)
+
+O script ira:
+  - Copiar os arquivos para C:\AICS
+  - Instalar o servico AICS-Service (inicia automatico com o Windows)
+  - Adicionar o icone de bandeja ao startup do Windows
+
+----------------------------------------
+ PASSO 3 — VERIFICAR
+----------------------------------------
+Clique com o botao direito em verificar.ps1
+Selecione: "Executar com PowerShell"
+
+Todos os itens devem aparecer como [OK].
+Se algum aparecer [X], o texto indica o que falhou.
+
+----------------------------------------
+ DESINSTALAR
+----------------------------------------
+Abra o PowerShell como Administrador e execute:
+
+  Stop-Service AICS-Service -Force
+  C:\AICS\nssm.exe remove AICS-Service confirm
+  Remove-Item -Recurse -Force C:\AICS
+  Remove-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "AICS-Tray"
+
+========================================

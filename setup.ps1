@@ -26,13 +26,15 @@ if (-not ([Security.Principal.WindowsPrincipal] `
     $scriptFile = if ($PSCommandPath) { $PSCommandPath } else { $MyInvocation.MyCommand.Definition }
     Start-Process powershell -ArgumentList `
         "-NoProfile -ExecutionPolicy Bypass -File `"$scriptFile`"" `
-        -Verb RunAs
+        -Verb RunAs -Wait
     exit
 }
 
 # =========================
 # CONFIG
 # =========================
+$ErrorActionPreference = "Stop"
+
 $ServiceName = "AICS-Service"
 $SourcePath  = $PSScriptRoot
 if (-not $SourcePath) { $SourcePath = Split-Path -Parent $MyInvocation.MyCommand.Definition }
@@ -43,100 +45,114 @@ $TrayPath    = "$DestPath\tray.ps1"
 $LogFile     = "$DestPath\aics.log"
 $nssm        = "$DestPath\nssm.exe"
 
-# =========================
-# COPIA ARQUIVOS
-# =========================
-Write-Host "Copiando arquivos para $DestPath..."
+Write-Host "DIAGNOSTICO:"
+Write-Host "  PSScriptRoot : '$PSScriptRoot'"
+Write-Host "  SourcePath   : '$SourcePath'"
+Write-Host "  DestPath     : '$DestPath'"
+Write-Host ""
 
-if (-not (Test-Path $DestPath)) {
-    New-Item -ItemType Directory -Path $DestPath | Out-Null
-}
+try {
+    # =========================
+    # COPIA ARQUIVOS
+    # =========================
+    Write-Host "Copiando arquivos para $DestPath..."
 
-$filesToCopy = @(
-    "ativar-ics.ps1",
-    "tray.ps1",
-    "config.txt",
-    "nssm.exe"
-)
-
-foreach ($file in $filesToCopy) {
-    $src = "$SourcePath\$file"
-    if (Test-Path $src) {
-        Copy-Item $src $DestPath -Force
-    } else {
-        Write-Warning "Arquivo não encontrado, ignorando: $file"
+    if (-not (Test-Path $DestPath)) {
+        New-Item -ItemType Directory -Path $DestPath | Out-Null
+        Write-Host "  Pasta criada: $DestPath"
     }
+
+    $filesToCopy = @(
+        "ativar-ics.ps1",
+        "tray.ps1",
+        "config.txt",
+        "nssm.exe"
+    )
+
+    foreach ($file in $filesToCopy) {
+        $src = "$SourcePath\$file"
+        if (Test-Path $src) {
+            Copy-Item $src $DestPath -Force
+            Write-Host "  Copiado: $file"
+        } else {
+            Write-Warning "Arquivo nao encontrado, ignorando: $src"
+        }
+    }
+
+    # =========================
+    # VALIDACOES
+    # =========================
+    if (-not (Test-Path $ScriptPath)) {
+        throw "ativar-ics.ps1 nao encontrado em $DestPath (SourcePath era: '$SourcePath')"
+    }
+
+    if (-not (Test-Path $nssm)) {
+        throw "nssm.exe nao encontrado em $DestPath (SourcePath era: '$SourcePath')"
+    }
+
+    # =========================
+    # INSTALA SERVICO
+    # =========================
+    Write-Host "Instalando servico AICS..."
+
+    $existing = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
+    if ($existing) {
+        Write-Host "Removendo servico existente..."
+        Stop-Service -Name $ServiceName -Force -ErrorAction SilentlyContinue
+        & $nssm remove $ServiceName confirm | Out-Null
+    }
+
+    & $nssm install $ServiceName "powershell.exe" `
+        "-NoProfile -ExecutionPolicy Bypass -File `"$ScriptPath`""
+
+    & $nssm set $ServiceName Start           SERVICE_AUTO_START
+    & $nssm set $ServiceName AppRestartDelay 5000
+    & $nssm set $ServiceName AppExit         Default Restart
+    & $nssm set $ServiceName AppThrottle     1500
+    & $nssm set $ServiceName AppStdout       $LogFile
+    & $nssm set $ServiceName AppStderr       $LogFile
+    & $nssm set $ServiceName AppRotateFiles  1
+    & $nssm set $ServiceName AppRotateOnline 1
+    & $nssm set $ServiceName AppRotateBytes  5242880
+
+    Write-Host "Iniciando servico..."
+    Start-Service -Name $ServiceName -ErrorAction SilentlyContinue
+
+    # =========================
+    # TRAY NO STARTUP DO WINDOWS
+    # =========================
+    Write-Host "Configurando tray no startup..."
+
+    $trayCmd = "powershell.exe -WindowStyle Hidden -NoProfile -ExecutionPolicy Bypass -File `"$TrayPath`""
+    $regKey  = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run"
+
+    Set-ItemProperty -Path $regKey -Name "AICS-Tray" -Value $trayCmd
+
+    # inicia o tray imediatamente (sem bloquear)
+    Start-Process powershell -ArgumentList `
+        "-WindowStyle Hidden -NoProfile -ExecutionPolicy Bypass -File `"$TrayPath`"" `
+        -WindowStyle Hidden
+
+    # =========================
+    # CONCLUIDO
+    # =========================
+    Write-Host ""
+    Write-Host "=========================================="
+    Write-Host " AICS instalado com sucesso!"
+    Write-Host "=========================================="
+    Write-Host " Servico : $ServiceName (em execucao)"
+    Write-Host " Tray    : iniciado e configurado no startup"
+    Write-Host " Log     : $LogFile"
+    Write-Host "=========================================="
+    Write-Host ""
 }
-
-# =========================
-# VALIDAÇÕES
-# =========================
-if (-not (Test-Path $ScriptPath)) {
-    Write-Error "ativar-ics.ps1 não encontrado em $DestPath"
-    pause
-    exit 1
+catch {
+    Write-Host ""
+    Write-Host "=========================================="
+    Write-Host " ERRO durante a instalacao:"
+    Write-Host " $_"
+    Write-Host "=========================================="
+    Write-Host ""
 }
-
-if (-not (Test-Path $nssm)) {
-    Write-Error "nssm.exe não encontrado em $DestPath"
-    pause
-    exit 1
-}
-
-# =========================
-# INSTALA SERVIÇO
-# =========================
-Write-Host "Instalando serviço AICS..."
-
-$existing = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
-if ($existing) {
-    Write-Host "Removendo serviço existente..."
-    Stop-Service -Name $ServiceName -Force -ErrorAction SilentlyContinue
-    & $nssm remove $ServiceName confirm | Out-Null
-}
-
-& $nssm install $ServiceName "powershell.exe" `
-    "-NoProfile -ExecutionPolicy Bypass -File `"$ScriptPath`""
-
-& $nssm set $ServiceName Start             SERVICE_AUTO_START
-& $nssm set $ServiceName AppRestartDelay   5000
-& $nssm set $ServiceName AppExit           Default Restart
-& $nssm set $ServiceName AppThrottle       1500
-& $nssm set $ServiceName AppStdout         $LogFile
-& $nssm set $ServiceName AppStderr         $LogFile
-& $nssm set $ServiceName AppRotateFiles    1
-& $nssm set $ServiceName AppRotateOnline   1
-& $nssm set $ServiceName AppRotateBytes    5242880
-
-Write-Host "Iniciando serviço..."
-Start-Service -Name $ServiceName -ErrorAction SilentlyContinue
-
-# =========================
-# TRAY NO STARTUP DO WINDOWS
-# =========================
-Write-Host "Configurando tray no startup..."
-
-$trayCmd = "powershell.exe -WindowStyle Hidden -NoProfile -ExecutionPolicy Bypass -File `"$TrayPath`""
-$regKey  = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run"
-
-Set-ItemProperty -Path $regKey -Name "AICS-Tray" -Value $trayCmd
-
-# inicia o tray imediatamente (sem bloquear)
-Start-Process powershell -ArgumentList `
-    "-WindowStyle Hidden -NoProfile -ExecutionPolicy Bypass -File `"$TrayPath`"" `
-    -WindowStyle Hidden
-
-# =========================
-# CONCLUÍDO
-# =========================
-Write-Host ""
-Write-Host "=========================================="
-Write-Host " AICS instalado com sucesso!"
-Write-Host "=========================================="
-Write-Host " Servico : $ServiceName (em execucao)"
-Write-Host " Tray    : iniciado e configurado no startup"
-Write-Host " Log     : $LogFile"
-Write-Host "=========================================="
-Write-Host ""
 
 pause
