@@ -17,7 +17,7 @@ echo  DESINSTALANDO AICS
 echo ==========================================
 echo.
 
-powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0desinstalar.ps1"
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0..\desinstalar.ps1"
 
 echo.
 pause
