@@ -10,17 +10,17 @@ if %errorlevel% neq 0 (
     exit /b
 )
 
-cd /d "%~dp0"
+cd /d "%~dp0.."
 
 echo.
 echo ==========================================
 echo  INSTALANDO AICS
-echo  Pasta: %~dp0
+echo  Pasta: %~dp0..
 echo ==========================================
 echo.
 
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
-    "$ErrorActionPreference='Stop'; try { . '%~dp0setup.ps1' } catch { Write-Host ''; Write-Host 'ERRO: ' $_ -ForegroundColor Red }"
+    "$ErrorActionPreference='Stop'; try { . '%~dp0..\setup.ps1' } catch { Write-Host ''; Write-Host 'ERRO: ' $_ -ForegroundColor Red }"
 
 echo.
 echo ==========================================

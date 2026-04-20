@@ -30,7 +30,8 @@ if (-not $BasePath) { $BasePath = Split-Path -Parent $MyInvocation.MyCommand.Def
 if (-not $BasePath) { $BasePath = "C:\AICS" }
 
 $ScriptPath  = "$BasePath\ativar-ics.ps1"
-$LogFile     = "$BasePath\log.txt"
+$LogDir      = "$BasePath\logs"
+$LogFile     = "$LogDir\log.txt"
 
 # NSSM
 $nssm = "$BasePath\nssm.exe"
@@ -82,7 +83,7 @@ Write-Host "Criando serviço AICS..."
 & $nssm set $ServiceName AppThrottle 1500
 
 # logs (apenas stderr; stdout gerenciado via Add-Content no script)
-& $nssm set $ServiceName AppStderr "$BasePath\error.txt"
+& $nssm set $ServiceName AppStderr "$LogDir\error.txt"
 & $nssm set $ServiceName AppRotateFiles 1
 & $nssm set $ServiceName AppRotateOnline 1
 & $nssm set $ServiceName AppRotateBytes 5242880

@@ -4,7 +4,9 @@ Add-Type -AssemblyName System.Drawing
 # CONFIG
 $ServiceName      = "AICS-Service"
 $BasePath         = "C:\AICS"
-$LogFile          = "$BasePath\log.txt"
+$LogDir           = "$BasePath\logs"
+$LogFile          = "$LogDir\log.txt"
+$ErrorFile        = "$LogDir\error.txt"
 $PrivateInterface = "Ethernet"
 $configPath       = "$BasePath\config.txt"
 if (Test-Path $configPath) {
@@ -59,6 +61,32 @@ $itemLog.Add_Click({
     } else {
         [System.Windows.Forms.MessageBox]::Show(
             "Log nao encontrado:`n$LogFile", "AICS",
+            [System.Windows.Forms.MessageBoxButtons]::OK,
+            [System.Windows.Forms.MessageBoxIcon]::Information
+        ) | Out-Null
+    }
+})
+
+$itemErrorLog = $menu.Items.Add("Abrir log de erros")
+$itemErrorLog.Add_Click({
+    if (Test-Path $ErrorFile) {
+        Start-Process "notepad.exe" $ErrorFile
+    } else {
+        [System.Windows.Forms.MessageBox]::Show(
+            "Nenhum erro registrado.`n$ErrorFile", "AICS",
+            [System.Windows.Forms.MessageBoxButtons]::OK,
+            [System.Windows.Forms.MessageBoxIcon]::Information
+        ) | Out-Null
+    }
+})
+
+$itemLogsFolder = $menu.Items.Add("Abrir pasta de logs")
+$itemLogsFolder.Add_Click({
+    if (Test-Path $LogDir) {
+        Start-Process "explorer.exe" $LogDir
+    } else {
+        [System.Windows.Forms.MessageBox]::Show(
+            "Pasta de logs nao encontrada:`n$LogDir", "AICS",
             [System.Windows.Forms.MessageBoxButtons]::OK,
             [System.Windows.Forms.MessageBoxIcon]::Information
         ) | Out-Null

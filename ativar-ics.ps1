@@ -27,7 +27,11 @@ $PrefixLength          = 24
 $NatName               = "AICS-NAT"
 $TimeoutPrivateSeconds = 30
 $TimeoutPublicSeconds  = 30
-$LogFile               = "$BasePath\log.txt"
+$LogDir                = "$BasePath\logs"
+$LogFile               = "$LogDir\log.txt"
+$ErrorFile             = "$LogDir\error.txt"
+
+if (-not (Test-Path $LogDir)) { New-Item -ItemType Directory -Path $LogDir | Out-Null }
 
 # =========================
 # LOG
@@ -125,18 +129,16 @@ function Apply-NATConfig {
     Set-NetIPInterface -InterfaceAlias $PrivIface -WeakHostSend    Enabled -ErrorAction SilentlyContinue
     Set-NetIPInterface -InterfaceAlias $PrivIface -WeakHostReceive Enabled -ErrorAction SilentlyContinue
 
-    # Remove NAT antigo se existir com prefixo diferente
-    $existingNat = Get-NetNat -Name $NatName -ErrorAction SilentlyContinue
-    if ($existingNat -and $existingNat.InternalIPInterfaceAddressPrefix -ne $NetPrefix) {
-        Remove-NetNat -Name $NatName -Confirm:$false -ErrorAction SilentlyContinue
-        $existingNat = $null
+    # Remove TODOS os NetNats existentes (qualquer conflito impede criação)
+    $allNats = Get-NetNat -ErrorAction SilentlyContinue
+    if ($allNats) {
+        $allNats | Remove-NetNat -Confirm:$false -ErrorAction SilentlyContinue
+        Write-Log "NetNats anteriores removidos: $(($allNats | Select-Object -ExpandProperty Name) -join ', ')"
     }
 
-    # Cria NAT se não existir
-    if (-not $existingNat) {
-        New-NetNat -Name $NatName -InternalIPInterfaceAddressPrefix $NetPrefix -ErrorAction SilentlyContinue | Out-Null
-        Write-Log "NetNat criado: $NetPrefix"
-    }
+    # Cria NAT
+    $created = New-NetNat -Name $NatName -InternalIPInterfaceAddressPrefix $NetPrefix -ErrorAction Stop
+    Write-Log "NetNat criado: $NetPrefix (id=$($created.Name))"
 
     # Confirma estado
     $pub  = Get-NetIPInterface -InterfaceAlias $PubIface  -AddressFamily IPv4 -ErrorAction SilentlyContinue
@@ -148,7 +150,7 @@ function Apply-NATConfig {
 }
 
 # =========================
-# DESATIVA ICS (evita conflito com NetNat)
+# DESATIVA ICS E PARA SharedAccess (conflita com NetNat)
 # =========================
 try {
     $ns = New-Object -ComObject HNetCfg.HNetShare -ErrorAction SilentlyContinue
@@ -157,6 +159,12 @@ try {
         if ($cfg.SharingEnabled) { $cfg.DisableSharing() }
     }
 } catch {}
+
+$sharedAccess = Get-Service -Name SharedAccess -ErrorAction SilentlyContinue
+if ($sharedAccess -and $sharedAccess.Status -eq 'Running') {
+    Stop-Service -Name SharedAccess -Force -ErrorAction SilentlyContinue
+    Write-Log "Servico SharedAccess parado (conflita com NetNat)."
+}
 
 # =========================
 # ESPERA REDE PRIVADA

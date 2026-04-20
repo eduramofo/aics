@@ -6,9 +6,9 @@ OUTPUT="AICS-v${VERSION}.zip"
 DIR="$(cd "$(dirname "$0")" && pwd)"
 
 FILES=(
-    INSTALAR.bat
-    DESINSTALAR.bat
-    STATUS.bat
+    cmd/INSTALAR.bat
+    cmd/DESINSTALAR.bat
+    cmd/STATUS.bat
     setup.ps1
     install-service.ps1
     desinstalar.ps1

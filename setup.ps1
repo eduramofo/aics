@@ -44,7 +44,8 @@ $DestPath    = "C:\AICS"
 
 $ScriptPath  = "$DestPath\ativar-ics.ps1"
 $TrayPath    = "$DestPath\tray.ps1"
-$LogFile     = "$DestPath\log.txt"
+$LogDir      = "$DestPath\logs"
+$LogFile     = "$LogDir\log.txt"
 $nssm        = "$DestPath\nssm.exe"
 
 Write-Host "DIAGNOSTICO:"
@@ -79,9 +80,7 @@ try {
         "tray.ps1",
         "config.txt",
         "nssm.exe",
-        "STATUS.bat",
         "desinstalar.ps1",
-        "DESINSTALAR.bat",
         "verificar.ps1"
     )
 
@@ -93,6 +92,22 @@ try {
         } else {
             Write-Warning "Arquivo nao encontrado, ignorando: $src"
         }
+    }
+
+    # Copia .bat da subpasta cmd/
+    $batFiles = @("INSTALAR.bat", "DESINSTALAR.bat", "STATUS.bat")
+    foreach ($bat in $batFiles) {
+        $src = "$SourcePath\cmd\$bat"
+        if (Test-Path $src) {
+            Copy-Item $src $DestPath -Force
+            Write-Host "  Copiado: cmd\$bat"
+        }
+    }
+
+    # Cria pasta de logs
+    if (-not (Test-Path $LogDir)) {
+        New-Item -ItemType Directory -Path $LogDir | Out-Null
+        Write-Host "  Pasta criada: $LogDir"
     }
 
     # =========================
@@ -125,7 +140,7 @@ try {
     & $nssm set $ServiceName AppRestartDelay 5000
     & $nssm set $ServiceName AppExit         Default Restart
     & $nssm set $ServiceName AppThrottle     1500
-    & $nssm set $ServiceName AppStderr       "$DestPath\error.txt"
+    & $nssm set $ServiceName AppStderr       "$LogDir\error.txt"
     & $nssm set $ServiceName AppRotateFiles  1
     & $nssm set $ServiceName AppRotateOnline 1
     & $nssm set $ServiceName AppRotateBytes  5242880

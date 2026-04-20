@@ -21,7 +21,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
     "Write-Host \"    SharedAccess = $ics\";" ^
     "Write-Host '';" ^
     "Write-Host '  Log (ultimas 5 linhas):';" ^
-    "if (Test-Path 'C:\AICS\log.txt') { Get-Content 'C:\AICS\log.txt' -Tail 5 | ForEach-Object { Write-Host \"    $_\" } } else { Write-Host '    (log vazio)' };" ^
+    "if (Test-Path 'C:\AICS\logs\log.txt') { Get-Content 'C:\AICS\logs\log.txt' -Tail 5 | ForEach-Object { Write-Host \"    $_\" } } else { Write-Host '    (log vazio)' };" ^
     "Write-Host '=============================='; Write-Host ''"
 
 pause
