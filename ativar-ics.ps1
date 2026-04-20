@@ -182,7 +182,10 @@ function Apply-NetworkConfig {
         Set-NetIPInterface -Forwarding Enabled -ErrorAction SilentlyContinue
 
     # WeakHostSend no Wi-Fi: permite que pacotes com source IP privado saiam pela interface pública
+    # WeakHostReceive no Wi-Fi: permite que respostas endereçadas a 10.10.10.1 sejam aceitas pelo Wi-Fi
     Set-NetIPInterface -InterfaceAlias $PubIface  -WeakHostSend    Enabled -ErrorAction SilentlyContinue
+    Set-NetIPInterface -InterfaceAlias $PubIface  -WeakHostReceive Enabled -ErrorAction SilentlyContinue
+    Set-NetIPInterface -InterfaceAlias $PrivIface -WeakHostSend    Enabled -ErrorAction SilentlyContinue
     Set-NetIPInterface -InterfaceAlias $PrivIface -WeakHostReceive Enabled -ErrorAction SilentlyContinue
 }
 
@@ -206,38 +209,42 @@ Apply-NetworkConfig -PubIface $PublicInterface -PrivIface $PrivateInterface
 # =========================
 # CONFIGURA IP FIXO (LAN)
 # =========================
+function Test-IPExists {
+    param ([string]$InterfaceAlias, [string]$IPAddress)
+    # Usa netsh como fonte de verdade independente do PolicyStore
+    $out = netsh interface ipv4 show addresses name="$InterfaceAlias" 2>$null
+    return ($out -match [regex]::Escape($IPAddress))
+}
+
 function Set-FixedIP {
     param ([string]$InterfaceAlias, [string]$IPAddress, [int]$PrefixLen)
 
-    Remove-NetIPAddress -InterfaceAlias $InterfaceAlias -Confirm:$false -ErrorAction SilentlyContinue
+    # Remove apenas se o IP específico já existir, para não brigar com o ICS
+    $existing = Get-NetIPAddress -InterfaceAlias $InterfaceAlias -IPAddress $IPAddress -ErrorAction SilentlyContinue
+    if ($existing) {
+        Remove-NetIPAddress -InterfaceAlias $InterfaceAlias -IPAddress $IPAddress -Confirm:$false -ErrorAction SilentlyContinue
+    }
+
     New-NetIPAddress `
         -InterfaceAlias $InterfaceAlias `
         -IPAddress $IPAddress `
         -PrefixLength $PrefixLen `
         -ErrorAction SilentlyContinue | Out-Null
 
-    # Aguarda DAD concluir (Tentative -> Preferred)
+    # Aguarda IP aparecer (via netsh, independente de PolicyStore/AddressState)
     $waited = 0
     while ($waited -lt 15) {
-        $ip = Get-NetIPAddress -InterfaceAlias $InterfaceAlias -IPAddress $IPAddress -ErrorAction SilentlyContinue |
-            Where-Object { $_.PolicyStore -eq 'ActiveStore' }
-        if ($ip -and $ip.AddressState.ToString() -eq 'Preferred') { return $true }
+        if (Test-IPExists -InterfaceAlias $InterfaceAlias -IPAddress $IPAddress) { return $true }
         Start-Sleep 1
         $waited++
     }
 
-    $ip = Get-NetIPAddress -InterfaceAlias $InterfaceAlias -IPAddress $IPAddress -ErrorAction SilentlyContinue |
-        Where-Object { $_.PolicyStore -eq 'ActiveStore' }
-    $stateVal = if ($ip) { $ip.AddressState.ToString() } else { 'ausente' }
-    Write-Log "IP $IPAddress ficou em estado '$stateVal' apos ${waited}s. Pode haver conflito ou link inativo." "AVISO"
+    Write-Log "IP $IPAddress nao apareceu em $InterfaceAlias apos ${waited}s." "AVISO"
     return $false
 }
 
-$currentIP = Get-NetIPAddress -InterfaceAlias $PrivateInterface -ErrorAction SilentlyContinue |
-    Where-Object { $_.IPAddress -eq $PrivateIP -and $_.PolicyStore -eq 'ActiveStore' }
-
-if ($currentIP -and $currentIP.AddressState.ToString() -eq 'Preferred') {
-    Write-Log "IP fixo ja esta correto e ativo: $PrivateIP na interface '$PrivateInterface'."
+if (Test-IPExists -InterfaceAlias $PrivateInterface -IPAddress $PrivateIP) {
+    Write-Log "IP fixo ja esta presente: $PrivateIP na interface '$PrivateInterface'."
 } else {
     if (Set-FixedIP -InterfaceAlias $PrivateInterface -IPAddress $PrivateIP -PrefixLen $PrefixLength) {
         Write-Log "IP fixo configurado: $PrivateIP na interface '$PrivateInterface'."
@@ -287,11 +294,8 @@ while ($true) {
         }
     }
 
-    # Reaplica IP fixo se tiver sumido ou preso em Tentative
-    $checkIP = Get-NetIPAddress -InterfaceAlias $PrivateInterface -ErrorAction SilentlyContinue |
-        Where-Object { $_.IPAddress -eq $PrivateIP -and $_.PolicyStore -eq 'ActiveStore' }
-
-    if (-not $checkIP -or $checkIP.AddressState.ToString() -ne 'Preferred') {
+    # Reaplica IP fixo se tiver sumido
+    if (-not (Test-IPExists -InterfaceAlias $PrivateInterface -IPAddress $PrivateIP)) {
         if (Set-FixedIP -InterfaceAlias $PrivateInterface -IPAddress $PrivateIP -PrefixLen $PrefixLength) {
             Write-Log "IP fixo reaplicado: $PrivateIP na interface '$PrivateInterface'."
         }
