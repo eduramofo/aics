@@ -34,8 +34,6 @@ if (-not ([Security.Principal.WindowsPrincipal] `
 # CONFIG
 # =========================
 $ErrorActionPreference = "Stop"
-$transcriptPath = "$env:USERPROFILE\Desktop\AICS-setup.txt"
-Start-Transcript -Path $transcriptPath -Force | Out-Null
 
 $ServiceName = "AICS-Service"
 $SourcePath  = $PSScriptRoot
@@ -47,6 +45,11 @@ $TrayPath    = "$DestPath\tray.ps1"
 $LogDir      = "$DestPath\logs"
 $LogFile     = "$LogDir\log.txt"
 $nssm        = "$DestPath\nssm.exe"
+
+# Garante pasta de logs antes do transcript
+if (-not (Test-Path $LogDir)) { New-Item -ItemType Directory -Path $LogDir | Out-Null }
+$transcriptPath = "$LogDir\install.txt"
+Start-Transcript -Path $transcriptPath -Force | Out-Null
 
 Write-Host "DIAGNOSTICO:"
 Write-Host "  PSScriptRoot : '$PSScriptRoot'"
@@ -102,12 +105,6 @@ try {
             Copy-Item $src $DestPath -Force
             Write-Host "  Copiado: cmd\$bat"
         }
-    }
-
-    # Cria pasta de logs
-    if (-not (Test-Path $LogDir)) {
-        New-Item -ItemType Directory -Path $LogDir | Out-Null
-        Write-Host "  Pasta criada: $LogDir"
     }
 
     # =========================
