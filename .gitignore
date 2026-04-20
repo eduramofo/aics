@@ -1,1 +1,5 @@
-./temp
+temp/
+*.zip
+log.txt
+error.txt
+
