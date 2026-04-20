@@ -11,7 +11,7 @@ PRE-REQUISITO
 ----------------------------------------
 Abra o arquivo config.txt e ajuste:
 
-  interface=Ethernet 2     <- nome da sua placa de rede PRIVADA (ex: Ethernet, Wi-Fi 2)
+  interface=Ethernet       <- nome da sua placa de rede PRIVADA (ex: Ethernet, Wi-Fi 2)
   private_ip=10.10.10.1   <- IP que esta maquina tera na rede compartilhada
 
 Para descobrir o nome correto da interface, abra o PowerShell e execute:
@@ -28,17 +28,13 @@ O script ira:
   - Instalar o servico AICS-Service (inicia automatico com o Windows)
   - Adicionar o icone de bandeja ao startup do Windows
 
-NOTA: Nao execute setup.ps1 diretamente — o Windows bloqueia .ps1 por politica
-      de seguranca. O INSTALAR.bat contorna isso automaticamente.
-
 ----------------------------------------
  PASSO 3 — VERIFICAR
 ----------------------------------------
-Abra o PowerShell e execute:
-  powershell -ExecutionPolicy Bypass -File verificar.ps1
+De duplo clique em STATUS.bat para verificacao rapida.
 
-Ou abra o verificar.ps1 no Bloco de Notas, copie o conteudo e cole
-no PowerShell.
+Para verificacao completa, abra o PowerShell como Administrador e execute:
+  powershell -ExecutionPolicy Bypass -File "C:\AICS\verificar.ps1"
 
 O resultado sera salvo automaticamente em:
   Area de Trabalho\AICS-verificar.txt
@@ -49,11 +45,12 @@ Se algum aparecer [X], o texto indica o que falhou.
 ----------------------------------------
  DESINSTALAR
 ----------------------------------------
-Abra o PowerShell como Administrador e execute:
+De duplo clique em DESINSTALAR.bat e aceite o UAC.
 
-  Stop-Service AICS-Service -Force
-  C:\AICS\nssm.exe remove AICS-Service confirm
-  Remove-Item -Recurse -Force C:\AICS
-  Remove-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "AICS-Tray"
+O desinstalador ira:
+  - Parar e remover o AICS-Service
+  - Remover o icone de bandeja do startup
+  - Remover o IP fixo da interface Ethernet
+  - Apagar a pasta C:\AICS
 
 ========================================

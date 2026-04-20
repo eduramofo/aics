@@ -198,3 +198,54 @@ if (-not $currentIP) {
 
     Write-Log "IP fixo configurado: $PrivateIP na interface '$PrivateInterface'."
 }
+
+# =========================
+# LOOP DE MONITORAMENTO
+# Mantém o serviço vivo e reaplica config se a rede mudar
+# =========================
+Write-Log "Servico ativo. Monitorando a cada 60s..."
+
+while ($true) {
+    Start-Sleep -Seconds 60
+
+    # Reverifica interface publica
+    $newPublic = Get-PublicInterface -PrivateInterface $PrivateInterface
+
+    if (-not $newPublic) { continue }
+
+    # Reaplica ICS se a interface publica tiver mudado
+    if ($newPublic -ne $PublicInterface) {
+        Write-Log "Interface publica mudou: '$PublicInterface' -> '$newPublic'. Reaplicando ICS..."
+        $PublicInterface = $newPublic
+
+        if (-not $map.ContainsKey($PublicInterface)) {
+            foreach ($conn in $netShare.EnumEveryConnection()) {
+                $props = $netShare.NetConnectionProps($conn)
+                $map[$props.Name] = $conn
+            }
+        }
+
+        if ($map.ContainsKey($PublicInterface)) {
+            $pub     = $map[$PublicInterface]
+            $cfgPub  = $netShare.INetSharingConfigurationForINetConnection($pub)
+            $cfgPriv = $netShare.INetSharingConfigurationForINetConnection($priv)
+
+            $cfgPub.DisableSharing()
+            $cfgPriv.DisableSharing()
+            $cfgPub.EnableSharing(0)
+            $cfgPriv.EnableSharing(1)
+
+            Write-Log "ICS reaplicado (pub='$PublicInterface', priv='$PrivateInterface')."
+        }
+    }
+
+    # Reaplica IP fixo se tiver sumido
+    $checkIP = Get-NetIPAddress -InterfaceAlias $PrivateInterface -ErrorAction SilentlyContinue |
+        Where-Object { $_.IPAddress -eq $PrivateIP }
+
+    if (-not $checkIP) {
+        Remove-NetIPAddress -InterfaceAlias $PrivateInterface -Confirm:$false -ErrorAction SilentlyContinue
+        New-NetIPAddress -InterfaceAlias $PrivateInterface -IPAddress $PrivateIP -PrefixLength $PrefixLength -ErrorAction SilentlyContinue
+        Write-Log "IP fixo reaplicado: $PrivateIP na interface '$PrivateInterface'."
+    }
+}

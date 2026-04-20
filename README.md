@@ -10,9 +10,10 @@ Funciona como um **roteador virtual**, compartilhando a conexão principal com u
 
 1. Coloque a pasta em qualquer lugar (ex: `C:\AICS`)
 2. Certifique-se de que `nssm.exe` está na pasta
-3. Clique com o botão direito em **`setup.ps1`** → **Executar com PowerShell**
+3. Edite `config.txt` com o nome correto da sua interface
+4. Dê duplo clique em **`INSTALAR.bat`** e aceite o UAC
 
-O instalador cuida de tudo automaticamente (eleva para Administrador via UAC sem interação adicional).
+O instalador cuida de tudo automaticamente.
 
 ---
 
@@ -20,9 +21,14 @@ O instalador cuida de tudo automaticamente (eleva para Administrador via UAC sem
 
 ```text
 AICS\
-├── setup.ps1         ← instalador unificado (execute este)
-├── ativar-ics.ps1    ← lógica principal do serviço
+├── INSTALAR.bat      ← execute este para instalar
+├── DESINSTALAR.bat   ← execute este para desinstalar
+├── STATUS.bat        ← diagnóstico rápido (duplo clique)
+├── setup.ps1         ← lógica do instalador (chamado pelo INSTALAR.bat)
+├── desinstalar.ps1   ← lógica do desinstalador
+├── ativar-ics.ps1    ← serviço principal (ICS + monitoramento)
 ├── tray.ps1          ← ícone de bandeja (status em tempo real)
+├── verificar.ps1     ← verificação completa do sistema
 ├── config.txt        ← configuração da interface privada e IP
 └── nssm.exe          ← gerenciador de serviço (incluir manualmente)
 ```
@@ -34,7 +40,7 @@ AICS\
 Edite o arquivo `config.txt` antes de instalar:
 
 ```ini
-interface=Ethernet 2
+interface=Ethernet
 private_ip=10.10.10.1
 ```
 
@@ -55,8 +61,16 @@ Após a instalação:
 - O script detecta a interface com internet (rota padrão)
 - Ativa o ICS entre a interface pública e a privada
 - Atribui IP fixo à interface privada
+- Entra em **loop de monitoramento** (verifica a cada 60s e reaplica se necessário)
 - O **ícone na bandeja** exibe o status em tempo real (verde = ativo, vermelho = parado)
 - Tray inicia automaticamente com o Windows
+
+## Diagnóstico
+
+| Ferramenta       | Como usar                        | O que mostra                              |
+|------------------|----------------------------------|-------------------------------------------|
+| `STATUS.bat`     | Duplo clique                     | Status rápido: serviço, ICS, log          |
+| `verificar.ps1`  | PowerShell (Admin)               | Verificação completa com todos os checks  |
 
 ---
 
@@ -64,13 +78,13 @@ Após a instalação:
 
 Menu disponível ao clicar no ícone:
 
-| Opção              | Ação                              |
-|--------------------|-----------------------------------|
-| ● Ativo / ○ Parado | Status atual (somente leitura)    |
-| Abrir log          | Abre `aics.log` no Notepad        |
-| Reiniciar serviço  | Reinicia o AICS-Service           |
-| Iniciar / Parar    | Liga ou desliga o serviço         |
-| Sair               | Fecha o ícone (serviço continua)  |
+| Opção                | Ação                              |
+|----------------------|-----------------------------------|
+| [ON] / [OFF] Serviço | Status atual (somente leitura)    |
+| Abrir log            | Abre `aics.log` no Notepad        |
+| Reiniciar servico    | Reinicia o AICS-Service           |
+| Iniciar / Parar      | Liga ou desliga o serviço         |
+| Sair                 | Fecha o ícone (serviço continua)  |
 
 ---
 
@@ -88,13 +102,17 @@ Apenas eventos relevantes são registrados (erros e mudanças reais). Execuçõe
 
 ## Desinstalar
 
-```powershell
-# Remove o serviço
-C:\AICS\nssm.exe remove AICS-Service confirm
+Dê duplo clique em **`DESINSTALAR.bat`** e aceite o UAC.
 
-# Remove o tray do startup
-Remove-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "AICS-Tray"
-```
+O que o desinstalador faz, em ordem:
+
+1. Para e remove o **AICS-Service**
+2. Remove o **ícone de bandeja** do startup do Windows
+3. Encerra o processo do tray se estiver rodando
+4. Remove o **IP fixo** da interface `Ethernet`
+5. Apaga a pasta **`C:\AICS`** completamente
+
+Após concluir, a conexão compartilhada é desativada e o Windows volta ao comportamento padrão.
 
 ---
 

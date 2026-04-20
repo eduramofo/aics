@@ -1,0 +1,69 @@
+========================================
+ GERENCIAR SERVICOS WINDOWS - AICS
+========================================
+
+----------------------------------------
+ PASSO 1 — ENCONTRAR O SERVICO
+----------------------------------------
+Abra o PowerShell e execute:
+
+  Get-Service | Where-Object {
+      $_.DisplayName -like "*ICS*" -or
+      $_.DisplayName -like "*sharing*" -or
+      $_.DisplayName -like "*AICS*"
+  } | Select-Object Name, DisplayName, Status, StartType
+
+Se nao encontrar, liste todos os servicos rodando:
+
+  Get-Service | Where-Object { $_.Status -eq "Running" } |
+      Sort-Object DisplayName |
+      Select-Object Name, DisplayName, Status |
+      Format-Table -AutoSize
+
+----------------------------------------
+ PASSO 2 — PARAR E DESATIVAR
+----------------------------------------
+Substitua NOME_DO_SERVICO pelo Name encontrado no passo 1.
+
+  Stop-Service -Name "NOME_DO_SERVICO" -Force
+  Set-Service  -Name "NOME_DO_SERVICO" -StartupType Disabled
+
+Para o AICS especificamente:
+
+  Stop-Service -Name "AICS-Service" -Force
+  Set-Service  -Name "AICS-Service" -StartupType Disabled
+
+----------------------------------------
+ PASSO 3 — VERIFICAR SE PAROU
+----------------------------------------
+
+  Get-Service -Name "NOME_DO_SERVICO" | Select-Object Name, Status, StartType
+
+Resultado esperado:
+  Status    = Stopped
+  StartType = Disabled
+
+----------------------------------------
+ REATIVAR (se precisar voltar)
+----------------------------------------
+
+  Set-Service  -Name "NOME_DO_SERVICO" -StartupType Automatic
+  Start-Service -Name "NOME_DO_SERVICO"
+
+----------------------------------------
+ REMOVER DE VEZ (sem desinstalar o AICS)
+----------------------------------------
+
+  Stop-Service -Name "AICS-Service" -Force
+  C:\AICS\nssm.exe remove AICS-Service confirm
+
+----------------------------------------
+ PELA INTERFACE GRAFICA (services.msc)
+----------------------------------------
+1. Win + R  ->  digite: services.msc  ->  Enter
+2. Encontre o servico na lista
+3. Clique com botao direito -> Propriedades
+4. Tipo de inicializacao -> Desabilitado
+5. Clique em Parar -> OK
+
+========================================

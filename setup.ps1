@@ -55,6 +55,16 @@ Write-Host ""
 
 try {
     # =========================
+    # PARA SERVICO ANTES DE COPIAR
+    # =========================
+    $existingEarly = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
+    if ($existingEarly -and $existingEarly.Status -eq "Running") {
+        Write-Host "Parando servico existente antes de copiar arquivos..."
+        Stop-Service -Name $ServiceName -Force -ErrorAction SilentlyContinue
+        Start-Sleep -Seconds 2
+    }
+
+    # =========================
     # COPIA ARQUIVOS
     # =========================
     Write-Host "Copiando arquivos para $DestPath..."
@@ -68,7 +78,11 @@ try {
         "ativar-ics.ps1",
         "tray.ps1",
         "config.txt",
-        "nssm.exe"
+        "nssm.exe",
+        "STATUS.bat",
+        "desinstalar.ps1",
+        "DESINSTALAR.bat",
+        "verificar.ps1"
     )
 
     foreach ($file in $filesToCopy) {
