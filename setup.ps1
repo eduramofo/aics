@@ -59,6 +59,32 @@ Write-Host ""
 
 try {
     # =========================
+    # VERIFICA/REGISTRA WINNAT (MSFT_NetNat WMI provider)
+    # =========================
+    $natClass = Get-CimClass -Namespace root/StandardCimv2 -ClassName MSFT_NetNat -ErrorAction SilentlyContinue
+    if (-not $natClass) {
+        Write-Host "WMI provider MSFT_NetNat ausente - registrando..."
+        $mof = "$env:SystemRoot\System32\wbem\NetNat.mof"
+        if (Test-Path $mof) {
+            & mofcomp.exe $mof 2>&1 | Out-Null
+            Start-Sleep 3
+        }
+        $winnat = Get-Service -Name winnat -ErrorAction SilentlyContinue
+        if ($winnat -and $winnat.Status -ne 'Running') {
+            Start-Service winnat -ErrorAction SilentlyContinue
+            Start-Sleep 2
+        }
+        $natClass2 = Get-CimClass -Namespace root/StandardCimv2 -ClassName MSFT_NetNat -ErrorAction SilentlyContinue
+        if ($natClass2) {
+            Write-Host "  [OK] MSFT_NetNat registrado com sucesso."
+        } else {
+            Write-Warning "MSFT_NetNat ainda ausente. NetNat pode nao funcionar neste PC."
+        }
+    } else {
+        Write-Host "  [OK] MSFT_NetNat disponivel."
+    }
+
+    # =========================
     # PARA SERVICO ANTES DE COPIAR
     # =========================
     $existingEarly = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue

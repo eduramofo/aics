@@ -145,6 +145,29 @@ function Apply-NATConfig {
         -ErrorAction SilentlyContinue | Out-Null
     Write-Log "Firewall: regra AICS-Private-In criada (allow $NetPrefix inbound em '$PrivIface')"
 
+    # Garante que o WMI provider MSFT_NetNat está registrado
+    # (HRESULT 0x80041010 = WBEM_E_INVALID_CLASS indica provider ausente)
+    $natClass = Get-CimClass -Namespace root/StandardCimv2 -ClassName MSFT_NetNat -ErrorAction SilentlyContinue
+    if (-not $natClass) {
+        Write-Log "MSFT_NetNat WMI class ausente - registrando mof..."
+        $mof = "$env:SystemRoot\System32\wbem\NetNat.mof"
+        if (Test-Path $mof) {
+            & mofcomp.exe $mof 2>&1 | Out-Null
+            Start-Sleep 3
+        }
+        # Garante que o driver winnat está iniciado
+        $winnat = Get-Service -Name winnat -ErrorAction SilentlyContinue
+        if ($winnat -and $winnat.Status -ne 'Running') {
+            Start-Service winnat -ErrorAction SilentlyContinue
+            Start-Sleep 2
+        }
+        # Habilita feature se ainda não disponível (requer reboot mas tenta de qualquer forma)
+        $natClass2 = Get-CimClass -Namespace root/StandardCimv2 -ClassName MSFT_NetNat -ErrorAction SilentlyContinue
+        if (-not $natClass2) {
+            Write-Log "MSFT_NetNat ainda ausente apos mofcomp. Verificar feature 'Microsoft-Windows-Subsystem-Linux' ou Hyper-V." "ERRO"
+        }
+    }
+
     # Remove TODOS os NetNats existentes (qualquer conflito impede criação)
     $allNats = Get-NetNat -ErrorAction SilentlyContinue
     if ($allNats) {
