@@ -151,6 +151,13 @@ function Apply-NATConfig {
     if (-not $natClass) {
         Write-Log "MSFT_NetNat WMI class ausente - registrando mof..."
         $mof = "$env:SystemRoot\System32\wbem\NetNat.mof"
+        # Usa o mof bundled se o do sistema estiver ausente
+        if (-not (Test-Path $mof)) {
+            $bundled = Join-Path $PSScriptRoot "NetNat.mof"
+            if (Test-Path $bundled) {
+                Copy-Item $bundled $mof -Force
+            }
+        }
         if (Test-Path $mof) {
             & mofcomp.exe $mof 2>&1 | Out-Null
             Start-Sleep 3
@@ -161,10 +168,9 @@ function Apply-NATConfig {
             Start-Service winnat -ErrorAction SilentlyContinue
             Start-Sleep 2
         }
-        # Habilita feature se ainda não disponível (requer reboot mas tenta de qualquer forma)
         $natClass2 = Get-CimClass -Namespace root/StandardCimv2 -ClassName MSFT_NetNat -ErrorAction SilentlyContinue
         if (-not $natClass2) {
-            Write-Log "MSFT_NetNat ainda ausente apos mofcomp. Verificar feature 'Microsoft-Windows-Subsystem-Linux' ou Hyper-V." "ERRO"
+            Write-Log "MSFT_NetNat ainda ausente apos mofcomp. Arquivo NetNat.mof pode estar ausente ou corrompido." "ERRO"
         }
     }
 

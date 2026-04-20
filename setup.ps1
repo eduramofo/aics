@@ -94,7 +94,15 @@ try {
     # 3. Registra WMI provider se ausente
     $natClass = Get-CimClass -Namespace root/StandardCimv2 -ClassName MSFT_NetNat -ErrorAction SilentlyContinue
     if (-not $natClass) {
+        # Tenta o mof do sistema primeiro; se ausente, usa o bundled no pacote
         $mof = "$env:SystemRoot\System32\wbem\NetNat.mof"
+        if (-not (Test-Path $mof)) {
+            $bundled = Join-Path $SourcePath "NetNat.mof"
+            if (Test-Path $bundled) {
+                Write-Host "  [INFO] NetNat.mof ausente no sistema - copiando do pacote..."
+                Copy-Item $bundled $mof -Force
+            }
+        }
         if (Test-Path $mof) {
             & mofcomp.exe $mof 2>&1 | Out-Null
             Start-Sleep 3
@@ -167,7 +175,8 @@ try {
         "config.txt",
         "nssm.exe",
         "desinstalar.ps1",
-        "verificar.ps1"
+        "verificar.ps1",
+        "NetNat.mof"
     )
 
     foreach ($file in $filesToCopy) {

@@ -20,6 +20,7 @@ FILES=(
     GERENCIAR_SERVICOS.txt
     README.md
     nssm.exe
+    NetNat.mof
 )
 
 cd "$DIR"
