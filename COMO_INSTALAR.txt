@@ -3,8 +3,19 @@
 ========================================
 
 PRE-REQUISITO
-  - Windows com permissao de Administrador
-  - Servico ICS (Internet Connection Sharing) habilitado no Windows
+  - Windows 10 versao 1607 ou superior
+  - Permissao de Administrador
+  - Componente "Plataforma de Maquina Virtual" habilitado
+
+  Para verificar/habilitar, abra o PowerShell como Administrador:
+    Enable-WindowsOptionalFeature -Online -FeatureName VirtualMachinePlatform -NoRestart
+
+  Ou via "Ativar ou desativar recursos do Windows":
+    Marque: Plataforma de Maquina Virtual (Virtual Machine Platform)
+    Reinicie o computador antes de instalar.
+
+  NOTA: O instalador verifica automaticamente. Se o requisito
+  estiver ausente, ele exibira o erro e nao instalara.
 
 ----------------------------------------
  PASSO 1 — CONFIGURAR

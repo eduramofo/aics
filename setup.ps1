@@ -59,30 +59,87 @@ Write-Host ""
 
 try {
     # =========================
-    # VERIFICA/REGISTRA WINNAT (MSFT_NetNat WMI provider)
+    # PREFLIGHT: VERIFICA REQUISITOS
     # =========================
+    Write-Host "Verificando requisitos..."
+    $preflightOk = $true
+
+    # 1. Versao do Windows
+    $build = [System.Environment]::OSVersion.Version.Build
+    if ($build -lt 14393) {
+        Write-Host "  [ERRO] Windows muito antigo (build $build). Minimo: Windows 10 1607 (build 14393)." -ForegroundColor Red
+        $preflightOk = $false
+    } else {
+        Write-Host "  [OK] Windows build $build"
+    }
+
+    # 2. Verifica se winnat service existe e inicia
+    $winnat = Get-Service -Name winnat -ErrorAction SilentlyContinue
+    if (-not $winnat) {
+        Write-Host "  [ERRO] Servico 'winnat' nao encontrado. Este servico e necessario para NetNat." -ForegroundColor Red
+        $preflightOk = $false
+    } else {
+        if ($winnat.Status -ne 'Running') {
+            Start-Service winnat -ErrorAction SilentlyContinue
+            Start-Sleep 2
+        }
+        $winnat = Get-Service -Name winnat -ErrorAction SilentlyContinue
+        if ($winnat.Status -eq 'Running') {
+            Write-Host "  [OK] Servico winnat em execucao."
+        } else {
+            Write-Host "  [AVISO] Servico winnat existe mas nao iniciou. Tentando registrar WMI..." -ForegroundColor Yellow
+        }
+    }
+
+    # 3. Registra WMI provider se ausente
     $natClass = Get-CimClass -Namespace root/StandardCimv2 -ClassName MSFT_NetNat -ErrorAction SilentlyContinue
     if (-not $natClass) {
-        Write-Host "WMI provider MSFT_NetNat ausente - registrando..."
         $mof = "$env:SystemRoot\System32\wbem\NetNat.mof"
         if (Test-Path $mof) {
             & mofcomp.exe $mof 2>&1 | Out-Null
             Start-Sleep 3
         }
-        $winnat = Get-Service -Name winnat -ErrorAction SilentlyContinue
-        if ($winnat -and $winnat.Status -ne 'Running') {
-            Start-Service winnat -ErrorAction SilentlyContinue
-            Start-Sleep 2
-        }
-        $natClass2 = Get-CimClass -Namespace root/StandardCimv2 -ClassName MSFT_NetNat -ErrorAction SilentlyContinue
-        if ($natClass2) {
-            Write-Host "  [OK] MSFT_NetNat registrado com sucesso."
-        } else {
-            Write-Warning "MSFT_NetNat ainda ausente. NetNat pode nao funcionar neste PC."
+        $natClass = Get-CimClass -Namespace root/StandardCimv2 -ClassName MSFT_NetNat -ErrorAction SilentlyContinue
+    }
+
+    # 4. Teste real: tenta criar e remover um NetNat de teste
+    if ($natClass) {
+        try {
+            $testNat = New-NetNat -Name "__AICS_TEST__" -InternalIPInterfaceAddressPrefix "192.168.222.0/24" -ErrorAction Stop
+            Remove-NetNat -Name "__AICS_TEST__" -Confirm:$false -ErrorAction SilentlyContinue
+            Write-Host "  [OK] New-NetNat funcional."
+        } catch {
+            Write-Host "  [ERRO] New-NetNat falhou: $_" -ForegroundColor Red
+            $preflightOk = $false
         }
     } else {
-        Write-Host "  [OK] MSFT_NetNat disponivel."
+        Write-Host "  [ERRO] WMI class MSFT_NetNat ausente mesmo apos tentativa de registro." -ForegroundColor Red
+        $preflightOk = $false
     }
+
+    if (-not $preflightOk) {
+        Write-Host "" 
+        Write-Host "=========================================="  -ForegroundColor Red
+        Write-Host "  INSTALACAO ABORTADA - Requisito ausente" -ForegroundColor Red
+        Write-Host "==========================================" -ForegroundColor Red
+        Write-Host ""
+        Write-Host "O AICS requer o componente 'Virtual Machine Platform' do Windows." -ForegroundColor Yellow
+        Write-Host ""
+        Write-Host "Para habilitar, execute no PowerShell como Administrador:" -ForegroundColor Cyan
+        Write-Host "  Enable-WindowsOptionalFeature -Online -FeatureName VirtualMachinePlatform -NoRestart" -ForegroundColor White
+        Write-Host ""
+        Write-Host "Ou via 'Ativar ou desativar recursos do Windows':" -ForegroundColor Cyan
+        Write-Host "  Marque: Plataforma de Maquina Virtual (Virtual Machine Platform)" -ForegroundColor White
+        Write-Host ""
+        Write-Host "Reinicie o computador e instale novamente." -ForegroundColor Yellow
+        Write-Host ""
+        Stop-Transcript -ErrorAction SilentlyContinue
+        pause
+        exit 1
+    }
+
+    Write-Host "  Todos os requisitos atendidos." -ForegroundColor Green
+    Write-Host ""
 
     # =========================
     # PARA SERVICO ANTES DE COPIAR
