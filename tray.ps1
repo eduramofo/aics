@@ -31,13 +31,29 @@ function Get-ServiceRunning {
 }
 
 function Get-ICSWorking {
-    # Verifica se o NetNat AICS-NAT existe e está ativo
+    # Modo NetNat: verifica se o NetNat AICS-NAT existe
     $nat = Get-NetNat -Name "AICS-NAT" -ErrorAction SilentlyContinue
-    if (-not $nat) { return $false }
+    if ($nat) {
+        $ping = & ping.exe -n 1 -w 2000 8.8.8.8 2>&1
+        return ($LASTEXITCODE -eq 0)
+    }
 
-    # Verifica se há internet acessível (via qualquer interface)
-    $ping = & ping.exe -n 1 -w 2000 8.8.8.8 2>&1
-    return ($LASTEXITCODE -eq 0)
+    # Modo ICS: verifica se SharedAccess esta rodando e ha compartilhamento ativo
+    $sa = Get-Service -Name SharedAccess -ErrorAction SilentlyContinue
+    if ($sa -and $sa.Status -eq 'Running') {
+        try {
+            $ns = New-Object -ComObject HNetCfg.HNetShare -ErrorAction Stop
+            foreach ($conn in @($ns.EnumEveryConnection())) {
+                $cfg = $ns.INetSharingConfigurationForINetConnection($conn)
+                if ($cfg.SharingEnabled) {
+                    $ping = & ping.exe -n 1 -w 2000 8.8.8.8 2>&1
+                    return ($LASTEXITCODE -eq 0)
+                }
+            }
+        } catch {}
+    }
+
+    return $false
 }
 
 $tray         = New-Object System.Windows.Forms.NotifyIcon
