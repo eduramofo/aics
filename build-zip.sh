@@ -6,10 +6,13 @@ OUTPUT="AICS-v${VERSION}.zip"
 DIR="$(cd "$(dirname "$0")" && pwd)"
 
 FILES=(
+    INSTALAR.bat
     setup.ps1
+    verificar.ps1
     ativar-ics.ps1
     tray.ps1
     config.txt
+    COMO_INSTALAR.txt
     README.md
     nssm.exe
 )

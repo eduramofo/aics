@@ -20,8 +20,7 @@ Para descobrir o nome correto da interface, abra o PowerShell e execute:
 ----------------------------------------
  PASSO 2 — INSTALAR
 ----------------------------------------
-Clique com o botao direito em setup.ps1
-Selecione: "Executar com PowerShell"
+De duplo clique em INSTALAR.bat
 Aceite o UAC (prompt de Administrador)
 
 O script ira:
@@ -29,11 +28,20 @@ O script ira:
   - Instalar o servico AICS-Service (inicia automatico com o Windows)
   - Adicionar o icone de bandeja ao startup do Windows
 
+NOTA: Nao execute setup.ps1 diretamente — o Windows bloqueia .ps1 por politica
+      de seguranca. O INSTALAR.bat contorna isso automaticamente.
+
 ----------------------------------------
  PASSO 3 — VERIFICAR
 ----------------------------------------
-Clique com o botao direito em verificar.ps1
-Selecione: "Executar com PowerShell"
+Abra o PowerShell e execute:
+  powershell -ExecutionPolicy Bypass -File verificar.ps1
+
+Ou abra o verificar.ps1 no Bloco de Notas, copie o conteudo e cole
+no PowerShell.
+
+O resultado sera salvo automaticamente em:
+  Area de Trabalho\AICS-verificar.txt
 
 Todos os itens devem aparecer como [OK].
 Se algum aparecer [X], o texto indica o que falhou.
