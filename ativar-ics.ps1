@@ -41,7 +41,6 @@ $LogFile                = "$BasePath\log.txt"
 function Write-Log {
     param ([string]$Message, [string]$Level = "INFO")
     $line = "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') [$Level] $Message"
-    Write-Host $line
     Add-Content -Path $LogFile -Value $line -Encoding UTF8
 }
 

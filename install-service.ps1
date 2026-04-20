@@ -81,8 +81,7 @@ Write-Host "Criando serviço AICS..."
 & $nssm set $ServiceName AppExit Default Restart
 & $nssm set $ServiceName AppThrottle 1500
 
-# logs (stdout e stderr separados, rotação a cada 5 MB)
-& $nssm set $ServiceName AppStdout $LogFile
+# logs (apenas stderr; stdout gerenciado via Add-Content no script)
 & $nssm set $ServiceName AppStderr "$BasePath\error.txt"
 & $nssm set $ServiceName AppRotateFiles 1
 & $nssm set $ServiceName AppRotateOnline 1

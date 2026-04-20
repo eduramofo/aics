@@ -1,0 +1,6 @@
+2026-04-20 14:36:10 [INFO] NetworkConfig Wi-Fi  -> Forwarding=Enabled WeakHostSend=Enabled WeakHostReceive=Enabled
+2026-04-20 14:36:10 [INFO] NetworkConfig Ethernet -> Forwarding=Enabled WeakHostSend=Enabled WeakHostReceive=Enabled
+2026-04-20 14:36:14 [INFO] IP fixo configurado: 10.10.10.1 na interface 'Ethernet'.
+2026-04-20 14:36:14 [INFO] Servico ativo. Monitorando a cada 60s...
+ configurado: 10.10.10.1 na interface 'Ethernet'.
+2026-04-20 14:36:14 [INFO] Servico ativo. Monitorando a cada 60s...
