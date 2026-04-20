@@ -7,12 +7,17 @@ DIR="$(cd "$(dirname "$0")" && pwd)"
 
 FILES=(
     INSTALAR.bat
+    DESINSTALAR.bat
+    STATUS.bat
     setup.ps1
+    install-service.ps1
+    desinstalar.ps1
     verificar.ps1
     ativar-ics.ps1
     tray.ps1
     config.txt
     COMO_INSTALAR.txt
+    GERENCIAR_SERVICOS.txt
     README.md
     nssm.exe
 )
