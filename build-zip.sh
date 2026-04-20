@@ -40,11 +40,19 @@ done
 
 # cria o zip: usa 'zip' no Linux, PowerShell no Windows
 if command -v zip &>/dev/null; then
-    zip "$OUTPUT" "${EXISTING[@]}"
+    zip -r "$OUTPUT" "${EXISTING[@]}"
 else
     powershell -NoProfile -Command "
+        Add-Type -AssemblyName System.IO.Compression.FileSystem
+        \$zipPath = [System.IO.Path]::GetFullPath('${OUTPUT}')
+        if (Test-Path \$zipPath) { Remove-Item \$zipPath }
+        \$zip = [System.IO.Compression.ZipFile]::Open(\$zipPath, 'Create')
         \$files = @($(printf "'%s'," "${EXISTING[@]}" | sed 's/,$//'))
-        Compress-Archive -Path \$files -DestinationPath '${OUTPUT}' -Force
+        foreach (\$f in \$files) {
+            \$full = [System.IO.Path]::GetFullPath(\$f)
+            [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile(\$zip, \$full, \$f) | Out-Null
+        }
+        \$zip.Dispose()
     "
 fi
 
