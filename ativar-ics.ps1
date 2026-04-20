@@ -182,7 +182,15 @@ if ($needsChange) {
     $cfgPriv.EnableSharing(1)  # Rede privada
 
     Write-Log "ICS configurado (pub='$PublicInterface', priv='$PrivateInterface')."
+
+    # Aguarda o ICS estabilizar antes de configurar IP
+    # (o ICS remove IPs da interface privada ao ser ativado)
+    Start-Sleep -Seconds 3
 }
+
+# Habilita IP forwarding explicitamente
+Get-NetIPInterface | Where-Object { $_.InterfaceAlias -eq $PublicInterface -or $_.InterfaceAlias -eq $PrivateInterface } |
+    Set-NetIPInterface -Forwarding Enabled -ErrorAction SilentlyContinue
 
 # =========================
 # CONFIGURA IP FIXO (LAN)
@@ -197,26 +205,29 @@ function Set-FixedIP {
         -PrefixLength $PrefixLen `
         -ErrorAction SilentlyContinue | Out-Null
 
-    # Aguarda DAD concluir (Tentative -> Preferred)
+    # Aguarda DAD concluir (Tentative=1 -> Preferred=4)
     $waited = 0
     while ($waited -lt 15) {
         $ip = Get-NetIPAddress -InterfaceAlias $InterfaceAlias -IPAddress $IPAddress -ErrorAction SilentlyContinue |
             Where-Object { $_.PolicyStore -eq 'ActiveStore' }
-        if ($ip -and $ip.AddressState -eq 'Preferred') { return $true }
+        if ($ip -and [int]$ip.AddressState -eq 4) { return $true }
         Start-Sleep 1
         $waited++
     }
 
     $ip = Get-NetIPAddress -InterfaceAlias $InterfaceAlias -IPAddress $IPAddress -ErrorAction SilentlyContinue |
         Where-Object { $_.PolicyStore -eq 'ActiveStore' }
-    Write-Log "IP $IPAddress ficou em estado '$($ip.AddressState)' apos ${waited}s. Pode haver conflito ou link inativo." "AVISO"
+    $stateVal = if ($ip) { [int]$ip.AddressState } else { 'ausente' }
+    Write-Log "IP $IPAddress ficou em estado '$stateVal' apos ${waited}s. Pode haver conflito ou link inativo." "AVISO"
     return $false
 }
 
 $currentIP = Get-NetIPAddress -InterfaceAlias $PrivateInterface -ErrorAction SilentlyContinue |
     Where-Object { $_.IPAddress -eq $PrivateIP -and $_.PolicyStore -eq 'ActiveStore' }
 
-if (-not $currentIP -or $currentIP.AddressState -ne 'Preferred') {
+if ($currentIP -and [int]$currentIP.AddressState -eq 4) {
+    Write-Log "IP fixo ja esta correto e ativo: $PrivateIP na interface '$PrivateInterface'."
+} else {
     if (Set-FixedIP -InterfaceAlias $PrivateInterface -IPAddress $PrivateIP -PrefixLen $PrefixLength) {
         Write-Log "IP fixo configurado: $PrivateIP na interface '$PrivateInterface'."
     }
@@ -266,7 +277,7 @@ while ($true) {
     $checkIP = Get-NetIPAddress -InterfaceAlias $PrivateInterface -ErrorAction SilentlyContinue |
         Where-Object { $_.IPAddress -eq $PrivateIP -and $_.PolicyStore -eq 'ActiveStore' }
 
-    if (-not $checkIP -or $checkIP.AddressState -ne 'Preferred') {
+    if (-not $checkIP -or [int]$checkIP.AddressState -ne 4) {
         if (Set-FixedIP -InterfaceAlias $PrivateInterface -IPAddress $PrivateIP -PrefixLen $PrefixLength) {
             Write-Log "IP fixo reaplicado: $PrivateIP na interface '$PrivateInterface'."
         }
